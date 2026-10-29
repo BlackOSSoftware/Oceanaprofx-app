@@ -8,7 +8,7 @@ class ChartException implements Exception {
   const ChartException(this.message);
   final String message;
   @override
-  String toString() => message;
+  String toString() => ApiConfig.scrubMessage(message);
 }
 
 /// Backend chart module (GET /v1/chart/candles) se candles.
@@ -55,7 +55,9 @@ class ChartRepository {
         name: '${data['name'] ?? ''}',
       );
     } on SocketException {
-      throw ChartException('Server not reachable: ${ApiConfig.host}');
+      throw const ChartException(
+        'Unable to connect to server. Please try again.',
+      );
     } on FormatException {
       throw const ChartException('Invalid chart data');
     } finally {

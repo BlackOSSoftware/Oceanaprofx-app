@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 import 'mq_widgets.dart';
@@ -68,7 +69,7 @@ class _MqAccountLoginPageState extends State<MqAccountLoginPage> {
       });
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      if (mounted) _snack('$e');
+      if (mounted) _snack(ApiConfig.userFacingError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

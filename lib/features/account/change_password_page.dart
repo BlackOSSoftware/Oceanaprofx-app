@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 
@@ -80,7 +81,9 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(ApiConfig.userFacingError(e))),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

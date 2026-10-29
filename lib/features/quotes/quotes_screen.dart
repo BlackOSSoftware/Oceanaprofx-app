@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
@@ -8,6 +11,7 @@ import '../../core/widgets/quote_price.dart';
 import '../shell/no_accounts_view.dart';
 import '../shell/simple_page.dart';
 import '../trade/new_order_page.dart';
+import 'market_statistics_page.dart';
 import 'quote_data.dart';
 import 'selected_symbols_page.dart';
 
@@ -35,9 +39,22 @@ List<Quote> liveDisplayQuotes() {
 
 Quote _displayQuote(String symbol) {
   final fallback = quoteBySymbol(symbol);
-  final live = tradingService.quotes[symbol];
+  final live = tradingService.quoteFor(symbol);
+  final inactive = tradingService.isQuoteInactive(symbol);
+  // Live ticks na hon (weekend/closed) to bhi dayClose / dayOpen dikhao.
+  if (live != null && !live.hasPrice) {
+    final seed = live.dayClose > 0
+        ? live.dayClose
+        : (live.dayOpen > 0 ? live.dayOpen : 0.0);
+    if (seed > 0) {
+      live.bid = seed;
+      live.ask = seed;
+      live.prevBid = seed;
+    }
+  }
   if (live == null || !live.hasPrice) {
-    return fallback ??
+    final base =
+        fallback ??
         Quote(
           symbol: symbol,
           change: '0 0.00%',
@@ -52,17 +69,32 @@ Quote _displayQuote(String symbol) {
           high: '0',
           priceUp: true,
           digits: 5,
+          inactive: true,
         );
+    // Last/static price dikhao lekin closed/no-tick pe gray.
+    return Quote(
+      symbol: base.symbol,
+      change: base.change,
+      changeUp: base.changeUp,
+      time: base.time,
+      spread: base.spread,
+      bidHead: base.bidHead,
+      bidTail: base.bidTail,
+      askHead: base.askHead,
+      askTail: base.askTail,
+      low: base.low,
+      high: base.high,
+      priceUp: base.priceUp,
+      digits: base.digits,
+      inactive: true,
+    );
   }
   final d = live.digits;
   final (bidHead, bidTail) = _split(live.bid, d);
   final (askHead, askTail) = _split(live.ask, d);
-  final pct = live.changePct;
-  final points = live.changePoints;
   return Quote(
     symbol: symbol,
-    change:
-        '${points > 0 ? '+' : ''}$points ${pct > 0 ? '+' : ''}${pct.toStringAsFixed(2)}%',
+    change: live.changeLabel,
     changeUp: live.changeUp,
     time: _timeStr(live.time),
     spread: '${live.spreadPoints}',
@@ -74,6 +106,7 @@ Quote _displayQuote(String symbol) {
     high: _fmt(live.dayHigh > 0 ? live.dayHigh : live.bid, d),
     priceUp: live.priceUp,
     digits: d,
+    inactive: inactive,
   );
 }
 
@@ -88,14 +121,41 @@ class QuotesScreen extends StatefulWidget {
 
 class _QuotesScreenState extends State<QuotesScreen> {
   bool _simpleView = false;
+  String _accountKey = tradingService.accountKey;
 
   @override
   void initState() {
     super.initState();
+    tradingService.addListener(_onTrading);
+    // Subscribe after first frame — cold start pe kam kaam.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _resubscribeQuotes();
+    });
+  }
+
+  @override
+  void dispose() {
+    tradingService.removeListener(_onTrading);
+    super.dispose();
+  }
+
+  void _onTrading() {
+    final key = tradingService.accountKey;
+    if (key == _accountKey) return;
+    _accountKey = key;
+    // New account: re-subscribe default symbols + account watchlist.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _resubscribeQuotes();
+    });
+  }
+
+  void _resubscribeQuotes() {
     for (final q in quotes) {
       tradingService.subscribe(q.symbol);
     }
-    tradingService.refreshWatchlist();
+    unawaited(tradingService.refreshWatchlist());
   }
 
   @override
@@ -315,7 +375,7 @@ void _showQuoteMenu(
           'Depth Of Market',
           () {
             close();
-            _openDepth(context, quote);
+            _openDepth(context);
           },
         ),
         (
@@ -364,23 +424,6 @@ void _showQuoteMenu(
   );
 }
 
-Widget _infoRow(String label, String value) {
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 15, color: MtColors.icon),
-          ),
-        ),
-        Text(value, style: TextStyle(fontSize: 15, color: MtColors.text)),
-      ],
-    ),
-  );
-}
-
 void _openSymbolInfo(
   BuildContext context,
   Quote quote, {
@@ -388,93 +431,433 @@ void _openSymbolInfo(
 }) {
   final live = tradingService.quotes[quote.symbol];
   final d = live?.digits ?? quote.digits;
-  String fmt(double v) => v > 0 ? v.toStringAsFixed(d) : '--';
+  if (!statistics) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _SymbolPropertiesPage(
+          symbol: quote.symbol,
+          description: _symbolDescription(quote.symbol),
+          digits: d,
+          live: live,
+        ),
+      ),
+    );
+    return;
+  }
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => SimplePage(
-        title: statistics ? 'Market Statistics' : 'Properties',
-        child: ListView(
-          children: [
-            _infoRow('Symbol', quote.symbol),
-            _infoRow('Description', _symbolDescription(quote.symbol)),
-            if (!statistics) ...[
-              _infoRow('Digits', '$d'),
-              _infoRow(
-                'Spread',
-                live != null ? '${live.spreadPoints} points' : quote.spread,
-              ),
-              _infoRow('Bid', fmt(live?.bid ?? 0)),
-              _infoRow('Ask', fmt(live?.ask ?? 0)),
-            ] else ...[
-              _infoRow('Day Open', fmt(live?.dayOpen ?? 0)),
-              _infoRow('Day High', fmt(live?.dayHigh ?? 0)),
-              _infoRow('Day Low', fmt(live?.dayLow ?? 0)),
-              _infoRow('Day Close', fmt(live?.dayClose ?? 0)),
-              _infoRow(
-                'Change',
-                live != null
-                    ? '${live.changePoints} (${live.changePct.toStringAsFixed(2)}%)'
-                    : quote.change,
-              ),
-            ],
-          ],
-        ),
+      builder: (_) => MarketStatisticsPage(
+        symbol: quote.symbol,
+        description: _symbolDescription(quote.symbol),
       ),
     ),
   );
 }
 
-void _openDepth(BuildContext context, Quote quote) {
-  final live = tradingService.quotes[quote.symbol];
-  final d = live?.digits ?? quote.digits;
-  var step = 1.0;
-  for (var i = 0; i < d; i++) {
-    step /= 10;
+class _SymbolPropertiesPage extends StatefulWidget {
+  const _SymbolPropertiesPage({
+    required this.symbol,
+    required this.description,
+    required this.digits,
+    required this.live,
+  });
+  final String symbol;
+  final String description;
+  final int digits;
+  final LiveQuote? live;
+
+  @override
+  State<_SymbolPropertiesPage> createState() => _SymbolPropertiesPageState();
+}
+
+class _SymbolPropertiesPageState extends State<_SymbolPropertiesPage> {
+  late Future<Map<String, dynamic>> _property;
+  bool _usdPerLot = true;
+  String? _infoUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _property = tradingService.instrumentProperty(widget.symbol);
   }
-  final bid =
-      live?.bid ?? double.tryParse('${quote.bidHead}${quote.bidTail}') ?? 0;
-  final ask =
-      live?.ask ?? double.tryParse('${quote.askHead}${quote.askTail}') ?? bid;
+
+  void _reload() {
+    setState(() {
+      _infoUrl = null;
+      _property = tradingService.instrumentProperty(widget.symbol);
+    });
+  }
+
+  Future<void> _openInfoUrl() async {
+    final url =
+        (_infoUrl != null && _infoUrl!.isNotEmpty)
+            ? _infoUrl!
+            : 'https://www.mql5.com/en/quotes/currencies/${widget.symbol.toLowerCase()}';
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  List<Map<String, String>> _pairs(dynamic raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          {
+            'label': '${item['label'] ?? item['day'] ?? item['range'] ?? ''}',
+            'value':
+                '${item['value'] ?? item['multiplier'] ?? item['session'] ?? ''}',
+          },
+    ];
+  }
+
+  void _captureInfoUrl(String? url) {
+    if (url == null || url.isEmpty || url == _infoUrl) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || url == _infoUrl) return;
+      setState(() => _infoUrl = url);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: MtColors.white,
+    appBar: AppBar(
+      backgroundColor: MtColors.white,
+      surfaceTintColor: MtColors.white,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.black),
+        onPressed: () => Navigator.of(context).maybePop(),
+      ),
+      titleSpacing: 0,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.symbol,
+            style: const TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 15,
+              fontWeight: FontWeight.w400,
+              color: Colors.black,
+              height: 1.1,
+            ),
+          ),
+          Text(
+            widget.description,
+            style: const TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 11,
+              color: Colors.black54,
+              height: 1.15,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          tooltip: 'Open symbol page',
+          padding: const EdgeInsets.only(right: 12),
+          onPressed: _openInfoUrl,
+          icon: ColorFiltered(
+            colorFilter: const ColorFilter.mode(
+              Colors.black87,
+              BlendMode.srcIn,
+            ),
+            child: Image.asset(
+              'assets/icons/property_search.png',
+              width: 26,
+              height: 26,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      ],
+    ),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: _property,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cloud_off, color: Colors.black45, size: 30),
+                  const SizedBox(height: 12),
+                  Text(
+                    '${snapshot.error}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                  TextButton(onPressed: _reload, child: const Text('Retry')),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final data = snapshot.data ?? const <String, dynamic>{};
+        final page =
+            (data['page'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        _captureInfoUrl('${page['infoUrl'] ?? ''}');
+
+        final properties = _pairs(page['properties']);
+        final swapRates = _pairs(page['swapRates']);
+        final quotesSessions = _pairs(page['quotesSessions']);
+        final tradesSessions = _pairs(page['tradesSessions']);
+        final margin =
+            (page['margin'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        final marketBuy = _pairs(margin['marketBuy']);
+        final marketSell = _pairs(margin['marketSell']);
+        final marginType =
+            '${margin['type'] ?? 'Floating, notional value per symbol, USD'}';
+
+        if (properties.isEmpty) {
+          return const Center(
+            child: Text(
+              'No property data',
+              style: TextStyle(color: Colors.black54),
+            ),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            _propertySection('PROPERTIES'),
+            for (final row in properties)
+              _propertyRow(row['label']!, row['value']!),
+            _propertySection('SWAP RATES'),
+            for (final row in swapRates)
+              _propertyRow(row['label']!, row['value']!),
+            _propertySection('MARGIN RATE: INITIAL / MAINTENANCE'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Show values in USD per lot',
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 15,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                  _MtPropertySwitch(
+                    value: _usdPerLot,
+                    onChanged: (v) => setState(() => _usdPerLot = v),
+                  ),
+                ],
+              ),
+            ),
+            _propertyRow('Type', marginType),
+            _propertyRow('Market buy', ''),
+            for (final row in marketBuy)
+              _marginBand(row['label']!, row['value']!),
+            _propertyRow('Market sell', ''),
+            for (final row in marketSell)
+              _marginBand(row['label']!, row['value']!),
+            _propertySection('QUOTES SESSIONS'),
+            for (final row in quotesSessions)
+              _propertyRow(row['label']!, row['value']!),
+            _propertySection('TRADES SESSIONS'),
+            for (final row in tradesSessions)
+              _propertyRow(row['label']!, row['value']!),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// MT5-style switch: thin grey track + oversized blue thumb with soft shadow.
+class _MtPropertySwitch extends StatelessWidget {
+  const _MtPropertySwitch({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  static const _blue = Color(0xFF2E6BE0);
+  static const _track = Color(0xFFD6D6D6);
+  static const double _width = 40;
+  static const double _trackH = 14;
+  static const double _thumb = 22;
+
+  @override
+  Widget build(BuildContext context) {
+    final left = value ? (_width - _thumb) : 0.0;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onChanged(!value),
+      child: SizedBox(
+        width: _width,
+        height: _thumb + 4,
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            // Thin pill track (thumb se chhota height)
+            Align(
+              alignment: Alignment.center,
+              child: Container(
+                width: _width - 2,
+                height: _trackH,
+                decoration: BoxDecoration(
+                  color: _track,
+                  borderRadius: BorderRadius.circular(_trackH / 2),
+                ),
+              ),
+            ),
+            // Blue circle thumb — track se bada, soft shadow
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              left: left,
+              top: 2,
+              child: Container(
+                width: _thumb,
+                height: _thumb,
+                decoration: BoxDecoration(
+                  color: _blue,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.22),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1.5),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Widget _propertySection(String title) => Padding(
+  padding: const EdgeInsets.only(top: 18),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Colors.black,
+            fontFamily: 'Roboto Condensed',
+            height: 1.15,
+          ),
+        ),
+      ),
+      const SizedBox(height: 5),
+      // Full-bleed under PROPERTIES / SWAP / … — right edge tak
+      const Divider(height: 2, thickness: 2, color: Color(0xffe8e8e8)),
+    ],
+  ),
+);
+
+Widget _propertyRow(String label, String value) => Padding(
+  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      // Label — left edge (Exchange, Sector, …)
+      Text(
+        label,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontFamily: 'Roboto',
+          fontSize: 15,
+          color: Colors.black,
+          height: 1.2,
+        ),
+      ),
+      if (value.isNotEmpty) ...[
+        const SizedBox(width: 16),
+        // Value — pura right edge (XCCY, Currency, …), ek line
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 15,
+              color: Colors.black,
+              height: 1.2,
+            ),
+          ),
+        ),
+      ],
+    ],
+  ),
+);
+
+Widget _marginBand(String range, String value) => Padding(
+  padding: const EdgeInsets.fromLTRB(28, 8, 16, 8),
+  child: Row(
+    children: [
+      Expanded(
+        child: Text(
+          range,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 14,
+            color: Colors.black,
+            height: 1.2,
+          ),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Text(
+        value,
+        style: const TextStyle(
+          fontFamily: 'Roboto',
+          fontSize: 14,
+          color: Colors.black,
+          height: 1.2,
+        ),
+      ),
+    ],
+  ),
+);
+
+void _openDepth(BuildContext context) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => SimplePage(
         title: 'Depth Of Market',
-        child: ListView(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          children: [
-            for (var i = 5; i >= 1; i--)
-              _depthRow(ask + step * i, d, MtColors.ask),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Spread: ${live?.spreadPoints ?? quote.spread}',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: MtColors.icon),
-              ),
+        child: Center(
+          child: Text(
+            'Coming Soon',
+            style: TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 18,
+              color: MtColors.icon,
             ),
-            for (var i = 1; i <= 5; i++)
-              _depthRow(bid - step * (i - 1), d, MtColors.bid),
-          ],
+          ),
         ),
       ),
-    ),
-  );
-}
-
-Widget _depthRow(double price, int digits, Color color) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-    child: Row(
-      children: [
-        Expanded(
-          child: Container(height: 22, color: color.withValues(alpha: 0.12)),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          price.toStringAsFixed(digits),
-          style: TextStyle(fontSize: 16, color: color),
-        ),
-      ],
     ),
   );
 }
@@ -548,7 +931,11 @@ class _SimpleQuoteTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = quote.priceUp ? MtColors.bid : MtColors.ask;
+    // Sirf bid/ask gray jab closed — symbol normal rahe.
+    final priceColor = quote.inactive
+        ? MtColors.textSecondary
+        : (quote.priceUp ? MtColors.bid : MtColors.ask);
+    final flagColor = _quoteFlagColor(quote);
     return Material(
       color: MtColors.white,
       child: InkWell(
@@ -567,45 +954,55 @@ class _SimpleQuoteTile extends StatelessWidget {
         splashFactory: InkRipple.splashFactory,
         splashColor: MtColors.text.withValues(alpha: 0.22),
         highlightColor: MtColors.text.withValues(alpha: 0.10),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(16, 11, 12, 11),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  quote.symbol,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: MtColors.text,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w500,
-                    height: 1.15,
-                  ),
-                ),
+        child: Stack(
+          children: [
+            if (flagColor != null)
+              Positioned(
+                left: 0,
+                top: 0,
+                child: _QuoteCornerFlag(color: flagColor),
               ),
-              SizedBox(
-                width: 100,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _SimplePrice(
-                    price: '${quote.bidHead}${quote.bidTail}',
-                    color: color,
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 11, 12, 11),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      quote.symbol,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: MtColors.text,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w500,
+                        height: 1.15,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              SizedBox(
-                width: 100,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _SimplePrice(
-                    price: '${quote.askHead}${quote.askTail}',
-                    color: color,
+                  SizedBox(
+                    width: 100,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: _SimplePrice(
+                        price: '${quote.bidHead}${quote.bidTail}',
+                        color: priceColor,
+                      ),
+                    ),
                   ),
-                ),
+                  SizedBox(
+                    width: 100,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: _SimplePrice(
+                        price: '${quote.askHead}${quote.askTail}',
+                        color: priceColor,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -654,6 +1051,62 @@ class _SimplePrice extends StatelessWidget {
   }
 }
 
+/// Left corner ribbon — sirf jab is user ki us instrument pe trade/pending ho:
+/// open pos profit → blue, loss → red, pending only → gray. Warna null (no flag).
+Color? _quoteFlagColor(Quote quote) {
+  final sym = quote.symbol;
+  var hasPos = false;
+  var posPnl = 0.0;
+  for (final p in tradingService.positions.values) {
+    if (TradingService.sameInstrument(p.symbol, sym)) {
+      hasPos = true;
+      posPnl += p.floatingPnL;
+    }
+  }
+  if (hasPos) return posPnl >= 0 ? MtColors.bid : MtColors.ask;
+
+  final hasPending = tradingService.pendings.values.any(
+    (o) => TradingService.sameInstrument(o.symbol, sym),
+  );
+  if (hasPending) return MtColors.textSecondary;
+
+  return null;
+}
+
+class _QuoteCornerFlag extends StatelessWidget {
+  const _QuoteCornerFlag({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: const Size(11, 11),
+      painter: _CornerFlagPainter(color),
+    );
+  }
+}
+
+class _CornerFlagPainter extends CustomPainter {
+  const _CornerFlagPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CornerFlagPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class _QuoteTile extends StatelessWidget {
   const _QuoteTile({
     super.key,
@@ -668,7 +1121,11 @@ class _QuoteTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sirf bid / ask gray — change %, symbol, time normal colors.
     final changeColor = quote.changeUp ? MtColors.bid : MtColors.ask;
+    final bidColor = quote.inactive ? MtColors.textSecondary : MtColors.bid;
+    final askColor = quote.inactive ? MtColors.textSecondary : MtColors.ask;
+    final flagColor = _quoteFlagColor(quote);
     return Material(
       color: MtColors.white,
       child: InkWell(
@@ -687,130 +1144,152 @@ class _QuoteTile extends StatelessWidget {
         splashFactory: InkRipple.splashFactory,
         splashColor: MtColors.text.withValues(alpha: 0.22),
         highlightColor: MtColors.text.withValues(alpha: 0.10),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: quote.change.split(' ').first,
-                            style: TextStyle(color: MtColors.icon),
+        child: Stack(
+          children: [
+            if (flagColor != null)
+              Positioned(
+                left: 0,
+                top: 0,
+                child: _QuoteCornerFlag(color: flagColor),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Points/delta (-522) = light gray; percent = blue/red.
+                        Builder(
+                          builder: (_) {
+                            final parts = quote.change.split(' ');
+                            final left = parts.isNotEmpty ? parts.first : '';
+                            final right = parts.length > 1
+                                ? parts.skip(1).join(' ')
+                                : '';
+                            return Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: left,
+                                    style: TextStyle(
+                                      color: MtColors.textSecondary,
+                                    ),
+                                  ),
+                                  if (right.isNotEmpty)
+                                    TextSpan(
+                                      text: ' $right',
+                                      style: TextStyle(color: changeColor),
+                                    ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                height: 1.1,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            );
+                          },
+                        ),
+                        SizedBox(height: 1),
+                        Text(
+                          quote.symbol,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: MtColors.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            height: 1.15,
                           ),
-                          TextSpan(
-                            text:
-                                ' ${quote.change.split(' ').skip(1).join(' ')}',
-                            style: TextStyle(color: changeColor),
+                        ),
+                        SizedBox(height: 5),
+                        SizedBox(
+                          height: 17,
+                          child: FittedBox(
+                            alignment: Alignment.centerLeft,
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  quote.time,
+                                  style: TextStyle(
+                                    color: MtColors.iconDark,
+                                    fontSize: 14,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                SizedBox(width: 5),
+                                ColorFiltered(
+                                  colorFilter: ColorFilter.mode(
+                                    MtColors.iconDark,
+                                    BlendMode.srcIn,
+                                  ),
+                                  child: Image.asset(
+                                    'assets/icons/quote_mark.png',
+                                    width: 12,
+                                    height: 11,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  quote.spread,
+                                  style: TextStyle(
+                                    color: MtColors.iconDark,
+                                    fontSize: 14,
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.1,
-                        fontWeight: FontWeight.w400,
-                      ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 1),
-                    Text(
-                      quote.symbol,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: MtColors.text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        height: 1.15,
-                      ),
-                    ),
-                    SizedBox(height: 5),
-                    SizedBox(
-                      height: 17,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.bottomRight,
                       child: FittedBox(
-                        alignment: Alignment.centerLeft,
                         fit: BoxFit.scaleDown,
+                        alignment: Alignment.bottomRight,
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              quote.time,
-                              style: TextStyle(
-                                color: MtColors.iconDark,
-                                fontSize: 14,
-                                height: 1.1,
+                            _PriceColumn(
+                              price: QuotePrice(
+                                head: quote.bidHead,
+                                tail: quote.bidTail,
+                                color: bidColor,
                               ),
+                              label: 'L: ${quote.low}',
                             ),
-                            SizedBox(width: 5),
-                            ColorFiltered(
-                              colorFilter: ColorFilter.mode(
-                                MtColors.iconDark,
-                                BlendMode.srcIn,
+                            const SizedBox(width: 16),
+                            _PriceColumn(
+                              price: QuotePrice(
+                                head: quote.askHead,
+                                tail: quote.askTail,
+                                color: askColor,
                               ),
-                              child: Image.asset(
-                                'assets/icons/quote_mark.png',
-                                width: 12,
-                                height: 11,
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              quote.spread,
-                              style: TextStyle(
-                                color: MtColors.iconDark,
-                                fontSize: 14,
-                                height: 1.1,
-                              ),
+                              label: 'H: ${quote.high}',
                             ),
                           ],
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.bottomRight,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        _PriceColumn(
-                          price: QuotePrice(
-                            head: quote.bidHead,
-                            tail: quote.bidTail,
-                            color: MtColors.bid,
-                          ),
-                          label: 'L: ${quote.low}',
-                        ),
-                        const SizedBox(width: 16),
-                        _PriceColumn(
-                          price: QuotePrice(
-                            head: quote.askHead,
-                            tail: quote.askTail,
-                            color: MtColors.ask,
-                          ),
-                          label: 'H: ${quote.high}',
-                        ),
-                      ],
-                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

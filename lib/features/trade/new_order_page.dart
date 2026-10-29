@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/api_config.dart';
 import '../../core/format.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trade_sound.dart';
@@ -275,7 +276,7 @@ class _NewOrderPageState extends State<NewOrderPage> {
         digits: digits,
         task: () async => throw ApiException(
           tradingService.loggedOutByUser
-              ? 'Not logged in. Please login with your FP Trades account.'
+              ? 'Not logged in. Please login with your trading account.'
               : 'Server not reachable. Please check your connection and try again.',
         ),
       );
@@ -1637,7 +1638,7 @@ class _OrderResultScreenState extends State<_OrderResultScreen> {
       if (!mounted) return;
       setState(() {
         _status = 'error';
-        _error = '$e';
+        _error = ApiConfig.userFacingError(e);
       });
       unawaited(TradeSound.error());
       await Future<void>.delayed(const Duration(seconds: 5));

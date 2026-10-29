@@ -28,5 +28,5 @@ class AppUpdateInfo {
 
   /// `/downloads/app.apk` jaisa path ho to isi backend ka host jodo.
   String get downloadUrl =>
-      apkUrl.startsWith('/') ? 'http://${ApiConfig.host}$apkUrl' : apkUrl;
+      apkUrl.startsWith('/') ? ApiConfig.absoluteUrl(apkUrl) : apkUrl;
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,8 +9,14 @@ import 'core/trading_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ApiConfig.load();
-  await tradingService.restore();
+  // Pehli paint pehle — SharedPreferences/network await mat karo,
+  // warna splash pe APK stuck / bohot slow lagta hai.
+  _applySystemUi();
+  runApp(const MtApp());
+  unawaited(_bootstrapAfterFirstFrame());
+}
+
+void _applySystemUi() {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.white,
@@ -18,5 +26,14 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
-  runApp(const MtApp());
+}
+
+Future<void> _bootstrapAfterFirstFrame() async {
+  // Ek frame paint hone do, phir disk + network.
+  await Future<void>.delayed(Duration.zero);
+  await Future.wait([
+    ApiConfig.load(),
+    tradingService.restoreLocal(),
+  ]);
+  unawaited(tradingService.bootstrapNetwork());
 }

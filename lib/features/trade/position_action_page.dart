@@ -90,7 +90,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
   }
 
   int get _digits {
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     return q?.digits ?? digitsFor(_symbol, widget.position.openPrice);
   }
 
@@ -114,7 +114,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
   bool get _slTpChanged => !_same(_sl, _initialSl) || !_same(_tp, _initialTp);
 
   bool get _slTpValid {
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     final p = _pos;
     final bid = q?.bid ?? p.currentPrice;
     final ask = q?.ask ?? p.currentPrice;
@@ -162,7 +162,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
       return;
     }
     _readSlTpFields();
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     final closePrice = p.isBuy ? q?.bid : q?.ask;
     final digits = _digits;
     setState(() => _busy = true);
@@ -493,7 +493,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
   }
 
   Widget _bigPrices() {
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     final bid = q?.bid ?? 0;
     final ask = q?.ask ?? 0;
     final digits = q?.digits ?? _digits;
@@ -521,7 +521,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
   }
 
   Widget _slTpRow(int digits) {
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     final base = q?.bid ?? _pos.currentPrice;
     final step = _NewOrderPageState._step(digits);
     return Padding(
@@ -572,7 +572,7 @@ class _PositionActionPageState extends State<PositionActionPage> {
   }
 
   Widget _chart() {
-    final q = tradingService.quotes[_symbol];
+    final q = tradingService.quoteFor(_symbol);
     return RepaintBoundary(
       child: CustomPaint(
         painter: _TickChartPainter(

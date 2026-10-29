@@ -11,7 +11,7 @@ class ApiException implements Exception {
   ApiException(this.message);
   final String message;
   @override
-  String toString() => message;
+  String toString() => ApiConfig.scrubMessage(message);
 }
 
 class Session {
@@ -24,9 +24,11 @@ class Session {
     this.name = '',
     this.refreshToken = '',
     this.source = 'server',
+    this.brokerCode = '',
+    this.brokerDisplayName = '',
   });
 
-  /// 'server' = FP Trades account, 'mq' = MetaQuotes demo ka trading account.
+  /// 'server' = broker trading account, 'mq' = MetaQuotes demo.
   final String source;
 
   final String token;
@@ -34,6 +36,26 @@ class Session {
   final String accountNumber;
   final String accountType;
   final String sessionType;
+
+  /// Broker brand from backend (Oceana Pro FX, FP Trades, …).
+  final String brokerCode;
+  final String brokerDisplayName;
+
+  /// true jab account_type demo ho (live accounts pe false).
+  bool get isDemo {
+    final t = accountType.trim().toLowerCase();
+    if (t.isEmpty) return false;
+    return t.contains('demo');
+  }
+
+  /// Watch / investor (read-only) password login.
+  bool get isWatchSession => sessionType.toUpperCase() == 'WATCH';
+
+  /// Sidebar / settings server line (no API host).
+  String get serverLabel => ApiConfig.serverNameFor(
+    accountType,
+    brokerDisplayName: brokerDisplayName,
+  );
 
   /// Account holder ka naam (sidebar me number ki jagah dikhta hai).
   final String name;
@@ -43,7 +65,13 @@ class Session {
   /// stored sessions me ye khali hoga; wo ek baar logout honge.
   final String refreshToken;
 
-  Session copyWith({String? token, String? refreshToken, String? name}) {
+  Session copyWith({
+    String? token,
+    String? refreshToken,
+    String? name,
+    String? brokerCode,
+    String? brokerDisplayName,
+  }) {
     return Session(
       token: token ?? this.token,
       accountId: accountId,
@@ -53,6 +81,8 @@ class Session {
       name: name ?? this.name,
       refreshToken: refreshToken ?? this.refreshToken,
       source: source,
+      brokerCode: brokerCode ?? this.brokerCode,
+      brokerDisplayName: brokerDisplayName ?? this.brokerDisplayName,
     );
   }
 
@@ -65,6 +95,8 @@ class Session {
     'sessionType': sessionType,
     'name': name,
     'refreshToken': refreshToken,
+    'brokerCode': brokerCode,
+    'brokerDisplayName': brokerDisplayName,
   };
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -76,6 +108,49 @@ class Session {
     name: j['name'] as String? ?? '',
     refreshToken: j['refreshToken'] as String? ?? '',
     source: j['source'] as String? ?? 'server',
+    brokerCode: j['brokerCode'] as String? ?? '',
+    brokerDisplayName: j['brokerDisplayName'] as String? ?? '',
+  );
+}
+
+/// Public broker row for Find-broker search (no auth).
+class PublicBroker {
+  const PublicBroker({
+    required this.id,
+    required this.code,
+    required this.displayName,
+    this.legalName = '',
+    this.logoUrl = '',
+    this.primaryColor = '#0066FF',
+    this.portalHosts = const [],
+  });
+
+  final String id;
+  final String code;
+  final String displayName;
+  final String legalName;
+  final String logoUrl;
+  final String primaryColor;
+  final List<String> portalHosts;
+
+  String get subtitle {
+    if (portalHosts.isNotEmpty) return portalHosts.first;
+    if (legalName.trim().isNotEmpty && legalName != displayName) {
+      return legalName;
+    }
+    return 'Login to trading account';
+  }
+
+  factory PublicBroker.fromJson(Map<String, dynamic> j) => PublicBroker(
+    id: '${j['id'] ?? ''}',
+    code: '${j['code'] ?? ''}',
+    displayName: '${j['displayName'] ?? j['code'] ?? ''}',
+    legalName: '${j['legalName'] ?? ''}',
+    logoUrl: '${j['logoUrl'] ?? ''}',
+    primaryColor: '${j['primaryColor'] ?? '#0066FF'}',
+    portalHosts: [
+      for (final h in (j['portalHosts'] as List? ?? const [])) '$h',
+    ],
   );
 }
 
@@ -89,6 +164,8 @@ class SavedFpAccount {
     this.password = '',
     this.balance = 0,
     this.lastLogin,
+    this.brokerCode = '',
+    this.brokerDisplayName = '',
   });
 
   final String accountNumber;
@@ -97,8 +174,21 @@ class SavedFpAccount {
   final String password;
   final double balance;
   final DateTime? lastLogin;
+  final String brokerCode;
+  final String brokerDisplayName;
 
   bool get isDemo => accountType.toLowerCase().contains('demo');
+
+  String get brandLabel {
+    final b = brokerDisplayName.trim();
+    if (b.isNotEmpty) return b;
+    return ApiConfig.publicServerLabel;
+  }
+
+  String get serverLabel => ApiConfig.serverNameFor(
+    accountType,
+    brokerDisplayName: brokerDisplayName,
+  );
 
   SavedFpAccount copyWith({
     String? name,
@@ -106,6 +196,8 @@ class SavedFpAccount {
     String? password,
     double? balance,
     DateTime? lastLogin,
+    String? brokerCode,
+    String? brokerDisplayName,
   }) => SavedFpAccount(
     accountNumber: accountNumber,
     name: name ?? this.name,
@@ -113,6 +205,8 @@ class SavedFpAccount {
     password: password ?? this.password,
     balance: balance ?? this.balance,
     lastLogin: lastLogin ?? this.lastLogin,
+    brokerCode: brokerCode ?? this.brokerCode,
+    brokerDisplayName: brokerDisplayName ?? this.brokerDisplayName,
   );
 
   Map<String, dynamic> toJson() => {
@@ -122,6 +216,8 @@ class SavedFpAccount {
     'password': password,
     'balance': balance,
     'lastLogin': lastLogin?.toIso8601String(),
+    'brokerCode': brokerCode,
+    'brokerDisplayName': brokerDisplayName,
   };
 
   factory SavedFpAccount.fromJson(Map<String, dynamic> j) => SavedFpAccount(
@@ -131,6 +227,8 @@ class SavedFpAccount {
     password: '${j['password'] ?? ''}',
     balance: (j['balance'] as num?)?.toDouble() ?? 0,
     lastLogin: DateTime.tryParse('${j['lastLogin'] ?? ''}'),
+    brokerCode: '${j['brokerCode'] ?? ''}',
+    brokerDisplayName: '${j['brokerDisplayName'] ?? ''}',
   );
 }
 
@@ -156,18 +254,55 @@ class LiveQuote {
   double dayHigh = 0;
   double dayLow = 0;
   double dayClose = 0;
+  /// Session bid/ask extremes (Market Statistics).
+  double bidHigh = 0;
+  double bidLow = 0;
+  double askHigh = 0;
+  double askLow = 0;
   DateTime? time;
 
   int get digits => digitsFor(symbol, bid);
   bool get hasPrice => bid > 0 && ask > 0;
   bool get priceUp => bid >= prevBid;
 
-  double get _ref => dayClose > 0 ? dayClose : dayOpen;
+  /// MT5 daily change vs day's open (fallback: prev close).
+  double get _ref => dayOpen > 0 ? dayOpen : dayClose;
+  double get changeDelta => _ref > 0 ? bid - _ref : 0;
   int get changePoints =>
-      _ref > 0 ? ((bid - _ref) * _pow10(digits)).round() : 0;
-  double get changePct => _ref > 0 ? (bid - _ref) / _ref * 100 : 0;
-  bool get changeUp => changePoints >= 0;
+      _ref > 0 ? (changeDelta * _pow10(digits)).round() : 0;
+  double get changePct => _ref > 0 ? changeDelta / _ref * 100 : 0;
+  bool get changeUp => changeDelta >= 0;
   int get spreadPoints => hasPrice ? ((ask - bid) * _pow10(digits)).round() : 0;
+
+  /// Quotes row: forex → integer points (`-127`); BTC/gold/indices →
+  /// price delta (`-530.17`) so huge point counts na dikhen.
+  String get changeLabel {
+    if (_ref <= 0 || bid <= 0) return '0 0.00%';
+    final d = digits;
+    final delta = changeDelta;
+    final pct = changePct;
+    final String left;
+    if (d >= 4) {
+      final pts = (delta * _pow10(d)).round();
+      left = pts > 0 ? '+$pts' : '$pts';
+    } else {
+      left = '${delta > 0 ? '+' : ''}${delta.toStringAsFixed(d)}';
+    }
+    // MT5: `+99 0.06%` / `-127 -0.11%` — + sirf left pe jab positive.
+    final right = '${pct.toStringAsFixed(2)}%';
+    return '$left $right';
+  }
+
+  void noteTick(double newBid, double newAsk) {
+    if (newBid > 0) {
+      bidHigh = bidHigh <= 0 ? newBid : (newBid > bidHigh ? newBid : bidHigh);
+      bidLow = bidLow <= 0 ? newBid : (newBid < bidLow ? newBid : bidLow);
+    }
+    if (newAsk > 0) {
+      askHigh = askHigh <= 0 ? newAsk : (newAsk > askHigh ? newAsk : askHigh);
+      askLow = askLow <= 0 ? newAsk : (newAsk < askLow ? newAsk : askLow);
+    }
+  }
 
   static double _pow10(int n) {
     var r = 1.0;
@@ -210,6 +345,26 @@ class LivePosition {
   final double commission;
 
   bool get isBuy => side == 'BUY';
+
+  LivePosition copyWith({
+    double? currentPrice,
+    double? floatingPnL,
+  }) =>
+      LivePosition(
+        positionId: positionId,
+        ticket: ticket,
+        symbol: symbol,
+        side: side,
+        volume: volume,
+        openPrice: openPrice,
+        currentPrice: currentPrice ?? this.currentPrice,
+        floatingPnL: floatingPnL ?? this.floatingPnL,
+        openTime: openTime,
+        stopLoss: stopLoss,
+        takeProfit: takeProfit,
+        swap: swap,
+        commission: commission,
+      );
 
   factory LivePosition.fromWs(Map<String, dynamic> j) => LivePosition(
     positionId: '${j['positionId'] ?? j['orderId'] ?? ''}',
@@ -351,6 +506,15 @@ class TradingService extends ChangeNotifier {
   /// Koi account active hai (warna app logged-out screens dikhata hai).
   bool get hasAnyAccount => isLoggedIn || mqLoggedIn;
 
+  /// Sidebar ribbon: active session demo hai ya live.
+  /// MQ MetaQuotes accounts demo treat; FP pe session.accountType.
+  bool get isActiveAccountDemo {
+    if (mqLoggedIn) return true;
+    final s = session;
+    if (s == null) return false;
+    return s.isDemo;
+  }
+
   /// Sabse last me login kiya hua account source: 'server'
   /// (FP Trades session) ya 'mq' (MetaQuotes demo). Sidebar aur
   /// Accounts screen me yahi wala account upar dikhta hai -
@@ -374,10 +538,14 @@ class TradingService extends ChangeNotifier {
   bool wsConnected = false;
   String? lastError;
 
+  /// segment (lowercase) → market open? Quotes gray jab false.
+  final marketOpenBySegment = <String, bool>{};
+
   final _subs = <String, String>{}; // symbol -> market
   final _ticks = <String, List<(DateTime, double, double)>>{};
   WebSocket? _ws;
   Timer? _reconnect;
+  Timer? _marketStatusTimer;
   bool _closed = false;
   // WebSocket stays OFF while logged out; it connects only on login.
   bool _wsEnabled = false;
@@ -385,13 +553,21 @@ class TradingService extends ChangeNotifier {
   // rebuild the whole UI on every single tick (app slow ho jata tha).
   Timer? _tickTimer;
   DateTime? _lastTickNotify;
+  /// Bumps on every account reset so late WS frames from account A
+  /// cannot mutate account B after a switch.
+  int _sessionGen = 0;
+
+  /// UI screens (Trade / History / Shell) isse account change detect karti hain.
+  String get accountKey =>
+      '${session?.source ?? ''}|${session?.accountId ?? ''}|${session?.accountNumber ?? ''}';
 
   // ---------------- session ----------------
 
-  Future<void> restore() async {
+  bool _bootstrapped = false;
+
+  /// Disk se session / accounts — network nahi. First frame ke pehle.
+  Future<void> restoreLocal() async {
     final prefs = await SharedPreferences.getInstance();
-    // MetaQuotes demo login state (local) - independent of the
-    // server trading session below.
     final mqRaw = prefs.getString('mq_active_account');
     if (mqRaw != null) {
       try {
@@ -411,23 +587,30 @@ class TradingService extends ChangeNotifier {
         session = Session.fromJson(jsonDecode(raw) as Map<String, dynamic>);
       } catch (_) {}
     }
+    notifyListeners();
+  }
+
+  /// Server validate + WS — first frame ke baad (splash ko block mat karo).
+  Future<void> bootstrapNetwork() async {
+    if (_bootstrapped) return;
+    _bootstrapped = true;
     if (session != null) {
-      // Stored session pehle server se validate karo: expire hai
-      // to refresh hoga, invalid hai to force-logout (neeche wala
-      // logged-out state). Valid ho tabhi WS + data chalega.
       await _validateSession();
       if (session != null) {
-        // Purane installs: chalu FP session ka card bhi list me aa jaye.
-        if (session!.source == 'server') await _rememberFp();
+        if (session!.source == 'server') unawaited(_rememberFp());
         connectWs();
         unawaited(refreshAccount());
         unawaited(refreshWatchlist());
       }
     }
-    // Session nahi (ya expire): sirf ACTIVE account (FP ya MQ) ke saved
-    // password se dobara login. Koi active account nahi = logged out.
     if (session == null) await ensureSession();
     notifyListeners();
+  }
+
+  /// Full restore (tests / rare callers).
+  Future<void> restore() async {
+    await restoreLocal();
+    await bootstrapNetwork();
   }
 
   static SavedFpAccount? _decodeFp(String raw) {
@@ -462,6 +645,9 @@ class TradingService extends ChangeNotifier {
           accountType: s.accountType.isNotEmpty ? s.accountType : null,
           password: password,
           lastLogin: touch || old == null ? DateTime.now() : null,
+          brokerCode: s.brokerCode.isNotEmpty ? s.brokerCode : null,
+          brokerDisplayName:
+              s.brokerDisplayName.isNotEmpty ? s.brokerDisplayName : null,
         );
     fpAccounts = [
       updated,
@@ -489,8 +675,8 @@ class TradingService extends ChangeNotifier {
   }
 
   /// Login response (FP account-auth ya MQ demo ka `session`) se naya
-  /// trading session chalu karo. Dusre account pe switch ho to purane
-  /// account ki positions/orders/WS saaf - mix nahi honge.
+  /// trading session chalu karo. Har naye session pe pehle WS + trade +
+  /// pricing caches poori tarah saaf — multi-account mix band.
   Future<void> _startSession(
     Map<String, dynamic> data, {
     required String source,
@@ -507,11 +693,13 @@ class TradingService extends ChangeNotifier {
       name: '${data['name'] ?? ''}',
       refreshToken: '${data['refreshToken'] ?? ''}',
       source: source,
+      brokerCode: '${data['brokerCode'] ?? ''}',
+      brokerDisplayName: '${data['brokerDisplayName'] ?? ''}',
     );
-    if (session != null && session!.accountId != next.accountId) {
-      disconnectWs();
-      _clearAccountState();
-    }
+    // Always tear down before applying next session (even same number
+    // re-login). Partial clear was leaking A quotes/positions into B.
+    disconnectWs();
+    _resetTradingState();
     session = next;
     loggedOutByUser = false;
     final prefs = await SharedPreferences.getInstance();
@@ -524,11 +712,60 @@ class TradingService extends ChangeNotifier {
     unawaited(refreshWatchlist());
   }
 
+  /// Positions / pendings only (logout + session switch shared base).
   void _clearAccountState() {
     positions.clear();
     pendings.clear();
     account = const LiveAccount();
     accountLoaded = false;
+  }
+
+  /// Full trading + pricing wipe for account switch / logout.
+  void _resetTradingState() {
+    _sessionGen++;
+    _clearAccountState();
+    quotes.clear();
+    _subs.clear();
+    _ticks.clear();
+    watchlist = const [];
+    lastError = null;
+  }
+
+  /// Login candidates: typed ID, plus with/without "AC" (users often omit AC).
+  static List<String> accountLoginCandidates(String raw) {
+    final s = raw.trim().replaceAll(RegExp(r'\s+'), '');
+    if (s.isEmpty) return const [];
+    final upper = s.toUpperCase();
+    final out = <String>[s];
+    if (upper.startsWith('AC') && s.length > 2) {
+      out.add(s.substring(2));
+    } else if (RegExp(r'^\d+$').hasMatch(s)) {
+      out.add('AC$s');
+    }
+    return [...{...out}];
+  }
+
+  /// MT5 Find-broker: ACTIVE brokers from backend (`q` optional).
+  /// Filtered by `--dart-define=BROKER_APP=oceana|fptrades` for white-label APKs.
+  Future<List<PublicBroker>> searchPublicBrokers({String q = ''}) async {
+    final data = await _request(
+      'GET',
+      '/v1/brokers/public',
+      auth: false,
+      query: {if (q.trim().isNotEmpty) 'q': q.trim()},
+    );
+    final raw = data['data'];
+    if (raw is! List) return const [];
+    return [
+      for (final row in raw)
+        if (row is Map)
+          PublicBroker.fromJson(Map<String, dynamic>.from(row)),
+    ].where((b) {
+      return ApiConfig.isBrokerVisibleInApp(
+        code: b.code,
+        displayName: b.displayName,
+      );
+    }).toList();
   }
 
   /// FP Trades account login (account-auth).
@@ -538,13 +775,33 @@ class TradingService extends ChangeNotifier {
     bool activate = true,
     bool savePassword = true,
   }) async {
-    final data = await _request(
-      'POST',
-      '/v1/account-auth/login',
-      auth: false,
-      body: {'account_number': accountNumber.trim(), 'password': password},
-    );
-    await _startSession(data, source: 'server', fallbackNumber: accountNumber);
+    final candidates = accountLoginCandidates(accountNumber);
+    if (candidates.isEmpty) {
+      throw ApiException('Enter login and password');
+    }
+
+    Object? lastError;
+    Map<String, dynamic>? data;
+    var usedNumber = candidates.first;
+    for (final num in candidates) {
+      try {
+        data = await _request(
+          'POST',
+          '/v1/account-auth/login',
+          auth: false,
+          body: {'account_number': num, 'password': password},
+        );
+        usedNumber = num;
+        break;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (data == null) {
+      throw lastError ?? ApiException('Invalid credentials');
+    }
+
+    await _startSession(data, source: 'server', fallbackNumber: usedNumber);
     // Har FP login Manage Accounts list me save (dusra login karne par
     // bhi card gayab nahi hoga).
     await _rememberFp(password: savePassword ? password : '', touch: true);
@@ -573,6 +830,7 @@ class TradingService extends ChangeNotifier {
             password: mqPass,
           );
         } else if (activeSource == 'server') {
+          // Prefer the most recently used FP card (list is newest-first).
           final saved = fpAccounts
               .where((a) => a.password.isNotEmpty)
               .firstOrNull;
@@ -581,7 +839,7 @@ class TradingService extends ChangeNotifier {
           }
         }
       } catch (e) {
-        lastError = '$e';
+        lastError = ApiConfig.userFacingError(e);
       }
       return session != null;
     }().whenComplete(() => _ensuring = null);
@@ -595,9 +853,22 @@ class TradingService extends ChangeNotifier {
   Future<bool> _validateSession() async {
     try {
       final data = await _request('GET', '/v1/account-auth/me');
+      if (session == null) return false;
       final name = '${data['name'] ?? ''}'.trim();
-      if (name.isNotEmpty && session != null && session!.name != name) {
-        session = session!.copyWith(name: name);
+      final brokerCode = '${data['brokerCode'] ?? ''}'.trim();
+      final brokerDisplayName = '${data['brokerDisplayName'] ?? ''}'.trim();
+      final changed =
+          (name.isNotEmpty && session!.name != name) ||
+          (brokerCode.isNotEmpty && session!.brokerCode != brokerCode) ||
+          (brokerDisplayName.isNotEmpty &&
+              session!.brokerDisplayName != brokerDisplayName);
+      if (changed) {
+        session = session!.copyWith(
+          name: name.isNotEmpty ? name : null,
+          brokerCode: brokerCode.isNotEmpty ? brokerCode : null,
+          brokerDisplayName:
+              brokerDisplayName.isNotEmpty ? brokerDisplayName : null,
+        );
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('session', jsonEncode(session!.toJson()));
         notifyListeners();
@@ -632,10 +903,15 @@ class TradingService extends ChangeNotifier {
       final token = data['tradeToken'] as String?;
       if (token == null || session == null) return false;
       final name = '${data['name'] ?? ''}'.trim();
+      final brokerCode = '${data['brokerCode'] ?? ''}'.trim();
+      final brokerDisplayName = '${data['brokerDisplayName'] ?? ''}'.trim();
       session = session!.copyWith(
         token: token,
         refreshToken: '${data['refreshToken'] ?? s.refreshToken}',
         name: name.isNotEmpty ? name : null,
+        brokerCode: brokerCode.isNotEmpty ? brokerCode : null,
+        brokerDisplayName:
+            brokerDisplayName.isNotEmpty ? brokerDisplayName : null,
       );
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('session', jsonEncode(session!.toJson()));
@@ -656,13 +932,7 @@ class TradingService extends ChangeNotifier {
     session = null;
     // Logged out: WebSocket band - koi live feed connection nahi.
     disconnectWs();
-    _clearAccountState();
-    // Purani prices bhi saaf - warna logout ke baad bhi order
-    // screen / quotes me freeze hue "live" price dikhte rehte the.
-    quotes.clear();
-    _subs.clear();
-    _ticks.clear();
-    watchlist = const [];
+    _resetTradingState();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('session');
     if (byUser) {
@@ -875,7 +1145,9 @@ class TradingService extends ChangeNotifier {
       '${ApiConfig.httpBase}$path',
     ).replace(queryParameters: query);
     final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 15);
+    // Short connect timeout — unreachable host pe app hang na kare.
+    client.connectionTimeout = const Duration(seconds: 5);
+    client.idleTimeout = const Duration(seconds: 10);
     try {
       final req = await client.openUrl(method, uri);
       req.headers.contentType = ContentType.json;
@@ -919,7 +1191,7 @@ class TradingService extends ChangeNotifier {
       }
       return data;
     } on SocketException {
-      throw ApiException('Server not reachable: ${ApiConfig.host}');
+      throw ApiException('Unable to connect to server. Please try again.');
     } finally {
       client.close();
     }
@@ -949,22 +1221,30 @@ class TradingService extends ChangeNotifier {
       );
       final list = pos['positions'];
       if (list is List) {
-        // Live (WS) entry ko REST wale stale price se overwrite mat karo.
+        // Full replace from REST so previous account positions cannot linger.
+        // Live mark (bid/ask) applied from current quotes when available.
         final fresh = <String, LivePosition>{};
         for (final item in list) {
           if (item is Map<String, dynamic>) {
-            final p = LivePosition.fromWs(item);
+            var p = LivePosition.fromWs(item);
             if (p.positionId.isEmpty) continue;
-            fresh[p.positionId] = positions[p.positionId] ?? p;
+            final q = quoteFor(p.symbol);
+            if (q != null && q.hasPrice) {
+              p = p.copyWith(currentPrice: p.isBuy ? q.bid : q.ask);
+            }
+            fresh[p.positionId] = p;
           }
         }
         positions
           ..clear()
           ..addAll(fresh);
+        for (final p in positions.values) {
+          ensureSubscribed(p.symbol);
+        }
         notifyListeners();
       }
     } catch (e) {
-      lastError = '$e';
+      lastError = ApiConfig.userFacingError(e);
     }
   }
 
@@ -989,8 +1269,40 @@ class TradingService extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      lastError = '$e';
+      lastError = ApiConfig.userFacingError(e);
     }
+  }
+
+  /// Broker instrument specification and market schedule for the symbol page.
+  Future<Map<String, dynamic>> instrumentProperty(String symbol) async {
+    if (!await ensureSession() || session?.source != 'server') {
+      throw ApiException(
+        'Sign in to a trading account to view symbol properties',
+      );
+    }
+    final response = await _request(
+      'GET',
+      '/v1/property/${Uri.encodeComponent(symbol)}',
+    );
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw ApiException('Invalid symbol properties response');
+    }
+    return data;
+  }
+
+  /// Market Statistics: Alltick daily OHLC + live bid/ask.
+  Future<Map<String, dynamic>> marketStatistics(String symbol) async {
+    final response = await _request(
+      'GET',
+      '/v1/market/statistics/${Uri.encodeComponent(symbol)}',
+      auth: false,
+    );
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw ApiException('Invalid market statistics response');
+    }
+    return data;
   }
 
   String _marketFor(WatchSymbol w) {
@@ -1227,8 +1539,54 @@ class TradingService extends ChangeNotifier {
     _send({'type': 'subscribe', 'market': market, 'symbol': sym});
   }
 
+  /// Position / pending symbol pe live feed (watchlist me na ho to bhi).
+  void ensureSubscribed(String symbol) {
+    final sym = symbol.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (sym.isEmpty || _subs.containsKey(sym)) return;
+    subscribe(sym, market: 'crypto');
+  }
+
+  /// LiveQuote by app symbol — BTCUSD/BTCUSDT jaisi aliases bhi.
+  LiveQuote? quoteFor(String symbol) {
+    final s = symbol.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (s.isEmpty) return null;
+    final direct = quotes[s];
+    if (direct != null && direct.hasPrice) return direct;
+    for (final a in _instrumentAliases(s)) {
+      final q = quotes[a];
+      if (q != null && q.hasPrice) return q;
+    }
+    return direct ?? quotes[s];
+  }
+
+  /// BTCUSD ↔ BTCUSDT, ETHUSD ↔ ETHUSDT, etc.
+  static bool sameInstrument(String a, String b) {
+    final x = a.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    final y = b.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (x.isEmpty || y.isEmpty) return false;
+    if (x == y) return true;
+    return _instrumentAliases(x).contains(y);
+  }
+
+  static List<String> _instrumentAliases(String sym) {
+    final s = sym.toUpperCase();
+    if (s.endsWith('USDT') && s.length > 4) {
+      return ['${s.substring(0, s.length - 1)}']; // BTCUSDT → BTCUSD
+    }
+    if (s.endsWith('USD') && !s.endsWith('USDT') && s.length > 3) {
+      return ['${s}T']; // BTCUSD → BTCUSDT
+    }
+    return const [];
+  }
+
   void connectWs() {
     _wsEnabled = true;
+    _marketStatusTimer?.cancel();
+    _marketStatusTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => unawaited(refreshMarketStatuses()),
+    );
+    unawaited(refreshMarketStatuses());
     if (_ws != null || _closed) return;
     unawaited(_connect());
   }
@@ -1237,6 +1595,8 @@ class TradingService extends ChangeNotifier {
   void disconnectWs() {
     _wsEnabled = false;
     _reconnect?.cancel();
+    _marketStatusTimer?.cancel();
+    _marketStatusTimer = null;
     _tickTimer?.cancel();
     _tickTimer = null;
     final old = _ws;
@@ -1276,27 +1636,125 @@ class TradingService extends ChangeNotifier {
   }
 
   Future<void> _connect() async {
+    final gen = _sessionGen;
     try {
       final ws = await WebSocket.connect(ApiConfig.wsUrl);
+      // Account switched while connecting — drop this socket.
+      if (!_wsEnabled || gen != _sessionGen) {
+        try {
+          await ws.close();
+        } catch (_) {}
+        return;
+      }
       _ws = ws;
       wsConnected = true;
       notifyListeners();
       _identify();
+      unawaited(refreshMarketStatuses());
       for (final e in _subs.entries) {
         _send({'type': 'subscribe', 'market': e.value, 'symbol': e.key});
       }
       ws.listen(
-        _onMessage,
-        onDone: _onDrop,
-        onError: (_) => _onDrop(),
+        (raw) {
+          if (gen != _sessionGen || !identical(_ws, ws)) return;
+          _onMessage(raw);
+        },
+        onDone: () => _onDrop(ws),
+        onError: (_) => _onDrop(ws),
         cancelOnError: true,
       );
     } catch (_) {
-      _onDrop();
+      if (gen == _sessionGen) _onDrop();
     }
   }
 
-  void _onDrop() {
+  /// Admin schedule / cron se open-closed; quotes gray ke liye.
+  Future<void> refreshMarketStatuses() async {
+    try {
+      final res = await _request('GET', '/v1/market/statuses', auth: false);
+      final data = res['data'];
+      if (data is! Map) return;
+      var changed = false;
+      for (final e in data.entries) {
+        final seg = '${e.key}'.trim().toLowerCase();
+        if (seg.isEmpty) continue;
+        final raw = e.value;
+        final open = raw is Map && raw['isMarketOpen'] == true;
+        if (marketOpenBySegment[seg] != open) {
+          marketOpenBySegment[seg] = open;
+          changed = true;
+        } else {
+          marketOpenBySegment.putIfAbsent(seg, () => open);
+        }
+      }
+      if (changed) notifyListeners();
+    } catch (_) {}
+  }
+
+  String segmentForSymbol(String symbol) {
+    final code = symbol.trim().toUpperCase();
+    for (final w in watchlist) {
+      if (w.code.toUpperCase() == code && w.segment.trim().isNotEmpty) {
+        return w.segment.trim().toLowerCase();
+      }
+    }
+    if (code.contains('USDT') ||
+        code.endsWith('USD') &&
+            (code.startsWith('BTC') || code.startsWith('ETH'))) {
+      return 'crypto';
+    }
+    if (code.startsWith('XAU') ||
+        code.startsWith('XAG') ||
+        code == 'SILVER' ||
+        code == 'GOLD') {
+      return 'metal';
+    }
+    if (code.contains('OIL') || code.startsWith('UKO') || code.startsWith('USO')) {
+      return 'energy';
+    }
+    if (code.contains('30') ||
+        code.contains('100') ||
+        code.contains('500') ||
+        code.startsWith('NAS') ||
+        code.startsWith('US') && code.length <= 5 && !code.contains('USD')) {
+      // rough indices heuristic; watchlist segment preferred
+      if (code == 'US30' ||
+          code == 'NAS100' ||
+          code == 'US500' ||
+          code == 'GER30') {
+        return 'indices';
+      }
+    }
+    return 'forex';
+  }
+
+  bool isMarketOpenForSymbol(String symbol) {
+    final seg = segmentForSymbol(symbol);
+    if (!marketOpenBySegment.containsKey(seg)) {
+      // aliases: indexes ↔ indices
+      if (seg == 'indices' && marketOpenBySegment.containsKey('indexes')) {
+        return marketOpenBySegment['indexes'] == true;
+      }
+      if (seg == 'indexes' && marketOpenBySegment.containsKey('indices')) {
+        return marketOpenBySegment['indices'] == true;
+      }
+      // Status abhi load nahi — sirf price se decide (no false gray flash).
+      return true;
+    }
+    return marketOpenBySegment[seg] == true;
+  }
+
+  /// Closed market ya live quote nahi → bid/ask gray.
+  bool isQuoteInactive(String symbol) {
+    final live = quoteFor(symbol);
+    final noPrice = live == null || !live.hasPrice;
+    final closed = !isMarketOpenForSymbol(symbol);
+    return noPrice || closed;
+  }
+
+  void _onDrop([WebSocket? closed]) {
+    // Stale socket from a previous account must not wipe the new connection.
+    if (closed != null && _ws != null && !identical(closed, _ws)) return;
     _ws = null;
     if (wsConnected) {
       wsConnected = false;
@@ -1309,6 +1767,15 @@ class TradingService extends ChangeNotifier {
         () => unawaited(_connect()),
       );
     }
+  }
+
+  /// Account-scoped WS payloads: drop if they belong to another account.
+  bool _eventForCurrentAccount(Map<String, dynamic> data) {
+    final id = '${data['accountId'] ?? ''}'.trim();
+    if (id.isEmpty) return true;
+    final current = session?.accountId ?? '';
+    if (current.isEmpty) return false;
+    return id == current;
   }
 
   void _identify() {
@@ -1331,6 +1798,17 @@ class TradingService extends ChangeNotifier {
     try {
       final msg = jsonDecode('$raw') as Map<String, dynamic>;
       final type = msg['type'] as String?;
+      if (type == 'market_status') {
+        final data = msg['data'];
+        if (data is Map) {
+          final seg = '${data['segment'] ?? ''}'.trim().toLowerCase();
+          if (seg.isNotEmpty) {
+            marketOpenBySegment[seg] = data['isMarketOpen'] == true;
+            notifyListeners();
+          }
+        }
+        return;
+      }
       if (type == 'orderbook') {
         final data = msg['data'] as Map<String, dynamic>?;
         if (data == null) return;
@@ -1338,21 +1816,51 @@ class TradingService extends ChangeNotifier {
             .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
             .toUpperCase();
         if (code.isEmpty) return;
-        final q = quotes.putIfAbsent(code, () => LiveQuote(code));
         final bid = _d(data['bids']?[0]?['price']);
         final ask = _d(data['asks']?[0]?['price']);
         if (bid <= 0 || ask <= 0) return;
-        q.prevBid = q.bid == 0 ? bid : q.bid;
-        q.bid = bid;
-        q.ask = ask;
-        final t = _date(data['tick_time']);
-        q.time = t ?? DateTime.now();
-        if (q.dayHigh > 0) q.dayHigh = q.dayHigh < bid ? bid : q.dayHigh;
-        if (q.dayLow > 0) q.dayLow = q.dayLow > bid ? bid : q.dayLow;
-        final list = _ticks.putIfAbsent(code, () => []);
-        list.add((q.time!, bid, ask));
-        if (list.length > 4000) list.removeRange(0, list.length - 4000);
-        _notifyTick();
+        final t = _date(data['tick_time']) ?? DateTime.now();
+
+        // Provider code (BTCUSDT) + app symbols (BTCUSD) dono update.
+        final targets = <String>{code, ..._instrumentAliases(code)};
+        for (final sub in _subs.keys) {
+          if (sameInstrument(sub, code)) targets.add(sub);
+        }
+        for (final p in positions.values) {
+          if (sameInstrument(p.symbol, code)) {
+            targets.add(p.symbol.toUpperCase());
+          }
+        }
+
+        for (final sym in targets) {
+          final q = quotes.putIfAbsent(sym, () => LiveQuote(sym));
+          q.prevBid = q.bid == 0 ? bid : q.bid;
+          q.bid = bid;
+          q.ask = ask;
+          q.noteTick(bid, ask);
+          q.time = t;
+          if (q.dayHigh > 0) q.dayHigh = q.dayHigh < bid ? bid : q.dayHigh;
+          if (q.dayLow > 0) q.dayLow = q.dayLow > bid ? bid : q.dayLow;
+          final list = _ticks.putIfAbsent(sym, () => []);
+          list.add((t, bid, ask));
+          if (list.length > 4000) list.removeRange(0, list.length - 4000);
+        }
+
+        // Trade mark = same live tick (BUY=bid, SELL=ask). PnL server se aata hai.
+        var posChanged = false;
+        for (final e in positions.entries.toList()) {
+          final p = e.value;
+          if (!sameInstrument(p.symbol, code)) continue;
+          final mark = p.isBuy ? bid : ask;
+          if ((p.currentPrice - mark).abs() < 1e-12) continue;
+          positions[e.key] = p.copyWith(currentPrice: mark);
+          posChanged = true;
+        }
+        if (posChanged) {
+          notifyListeners();
+        } else {
+          _notifyTick();
+        }
         return;
       }
       if (msg['status'] == 'subscribed') {
@@ -1362,11 +1870,30 @@ class TradingService extends ChangeNotifier {
         q.dayHigh = _d(msg['dayHigh']);
         q.dayLow = _d(msg['dayLow']);
         q.dayClose = _d(msg['dayClose']);
+        // Weekend / closed market: live ticks nahi aate — last close se seed
+        // taaki watchlist 0.00 na dikhe (gray + last price).
+        final seedBid = _d(msg['bid']);
+        final seedAsk = _d(msg['ask']);
+        if (!q.hasPrice) {
+          final double bid = seedBid > 0
+              ? seedBid
+              : (q.dayClose > 0
+                    ? q.dayClose
+                    : (q.dayOpen > 0 ? q.dayOpen : 0.0));
+          final double ask = seedAsk > 0 ? seedAsk : bid;
+          if (bid > 0 && ask > 0) {
+            q.bid = bid;
+            q.ask = ask;
+            q.prevBid = bid;
+            q.time ??= DateTime.now();
+          }
+        }
         notifyListeners();
         return;
       }
       final data = msg['data'];
       if (data is! Map<String, dynamic>) return;
+      if (!_eventForCurrentAccount(data)) return;
       switch (type) {
         case 'live_account':
           account = LiveAccount.fromJson(data);
@@ -1380,7 +1907,13 @@ class TradingService extends ChangeNotifier {
                 (id, old) => id != p.positionId && old.ticket == p.ticket,
               );
             }
-            positions[p.positionId] = p;
+            // Prefer fresher LiveQuote mark over stale REST/WS snapshot.
+            final q = quoteFor(p.symbol);
+            final merged = (q != null && q.hasPrice)
+                ? p.copyWith(currentPrice: p.isBuy ? q.bid : q.ask)
+                : p;
+            positions[p.positionId] = merged;
+            ensureSubscribed(p.symbol);
             notifyListeners();
           }
         case 'live_position_closed':
@@ -1396,6 +1929,7 @@ class TradingService extends ChangeNotifier {
               );
             }
             pendings[o.orderId] = o;
+            ensureSubscribed(o.symbol);
             notifyListeners();
           }
         case 'live_pending_cancel':

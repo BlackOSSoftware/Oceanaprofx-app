@@ -26,7 +26,11 @@ class _AppUpdateGateState extends State<AppUpdateGate>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+    // Startup pe login/WS pehle; update check thodi der baad.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (mounted) _check();
+    });
   }
 
   @override

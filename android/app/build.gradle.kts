@@ -44,19 +44,9 @@ flutter {
     source = "../.."
 }
 
-val metaLogo = file("../../assets/metaLogo.png")
-
-tasks.register("copyMetaLogo") {
-    inputs.file(metaLogo)
-    doLast {
-        listOf("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi").forEach { density ->
-            val dir = file("src/main/res/mipmap-$density")
-            dir.mkdirs()
-            metaLogo.copyTo(dir.resolve("ic_launcher.png"), overwrite = true)
-        }
-    }
+dependencies {
+    implementation("androidx.core:core-splashscreen:1.0.1")
 }
 
-tasks.named("preBuild").configure {
-    dependsOn("copyMetaLogo")
-}
+// Icons / splash PNGs are generated into res/ (see splash_logo + mipmaps).
+// Do not overwrite density-sized launchers with the raw 512px metaLogo.

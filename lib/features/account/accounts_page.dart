@@ -8,6 +8,7 @@ import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
 import '../../core/trading_service.dart';
 import '../../core/widgets/mt_bottom_nav.dart';
+import '../../core/widgets/mt_corner_ribbon.dart';
 import '../shell/app_drawer.dart';
 import '../shell/no_accounts_view.dart';
 import '../../core/widgets/mt_dialogs.dart';
@@ -207,7 +208,9 @@ class _AccountsPageState extends State<AccountsPage> {
       } catch (e) {
         messenger
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('$e')));
+          ..showSnackBar(
+            SnackBar(content: Text(ApiConfig.userFacingError(e))),
+          );
       }
     }
     if (!mounted) return;
@@ -240,7 +243,9 @@ class _AccountsPageState extends State<AccountsPage> {
       } catch (e) {
         messenger
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('$e')));
+          ..showSnackBar(
+            SnackBar(content: Text(ApiConfig.userFacingError(e))),
+          );
       }
     }
     if (!mounted) return;
@@ -316,7 +321,7 @@ class _AccountsPageState extends State<AccountsPage> {
           context,
           title: 'Properties',
           message:
-              '${a.accountNumber} - ${_fpName(a)}\nFP Trades\n'
+              '${a.accountNumber} - ${_fpName(a)}\n${a.brandLabel}\n'
               'USD ${_MqAccountCard._money(live ? tradingService.account.balance : a.balance)}',
         );
     }
@@ -488,7 +493,7 @@ class _AccountsPageState extends State<AccountsPage> {
           style: TextStyle(fontSize: 18, color: MtColors.text),
         ),
         content: Text(
-          'FP Trades\n${s.name}\n${ApiConfig.serverNameFor(s.accountType)}\nCurrently logged in',
+          '${s.brokerDisplayName.isNotEmpty ? s.brokerDisplayName : ApiConfig.publicServerLabel}\n${s.name}\n${s.serverLabel}\nCurrently logged in',
           style: TextStyle(fontSize: 14, color: MtColors.icon),
         ),
         actions: [
@@ -856,6 +861,7 @@ class _FpAccountCard extends StatelessWidget {
     final name = s.name.trim().isNotEmpty ? s.name.trim() : s.accountNumber;
     final balance = tradingService.account.balance;
     final isDemo = s.accountType.toLowerCase().contains('demo');
+    final isWatch = s.isWatchSession;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Container(
@@ -871,39 +877,47 @@ class _FpAccountCard extends StatelessWidget {
             ),
           ],
         ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-              child: Column(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Stack(
                 children: [
-                  if (isDemo)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE3F4E5),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'Demo',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF2E7D32),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                    child: Column(
+                      children: [
+                        if (isDemo)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE3F4E5),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Text(
+                                'Demo',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF2E7D32),
+                                ),
+                              ),
+                            ),
                           ),
+                        const SizedBox(height: 4),
+                        FpLogo(
+                          size: 36,
+                          brokerCode: s.brokerCode,
+                          brokerDisplayName: s.brokerDisplayName,
                         ),
-                      ),
-                    ),
-                  const SizedBox(height: 4),
-                  const FpLogo(size: 36),
                   const SizedBox(height: 10),
                   Text(
                     name,
@@ -915,17 +929,19 @@ class _FpAccountCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'FP Trades',
+                  Text(
+                    s.brokerDisplayName.isNotEmpty
+                        ? s.brokerDisplayName
+                        : ApiConfig.publicServerLabel,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: mqBlue),
+                    style: const TextStyle(fontSize: 13, color: mqBlue),
                   ),
                   const SizedBox(height: 6),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        '${s.accountNumber} — ${ApiConfig.serverNameFor(s.accountType)}',
+                        '${s.accountNumber} — ${s.serverLabel}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF757575),
@@ -990,6 +1006,15 @@ class _FpAccountCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                      ],
+                    ),
+                  ),
+                  if (isWatch)
+                    const Positioned(
+                      top: 0,
+                      left: 0,
+                      child: MtCornerRibbon.watch(),
+                    ),
                 ],
               ),
             ),
@@ -1187,7 +1212,11 @@ class _FpAccountCompactCard extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const FpLogo(size: 30),
+                  FpLogo(
+                    size: 30,
+                    brokerCode: account.brokerCode,
+                    brokerDisplayName: account.brokerDisplayName,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -1205,8 +1234,7 @@ class _FpAccountCompactCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${account.accountNumber} — '
-                          '${ApiConfig.serverNameFor(account.accountType)}',
+                          '${account.accountNumber} — ${account.serverLabel}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -1216,7 +1244,7 @@ class _FpAccountCompactCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${_MqAccountCard._money(balance)} USD, FP Trades',
+                          '${_MqAccountCard._money(balance)} USD, ${account.brandLabel}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

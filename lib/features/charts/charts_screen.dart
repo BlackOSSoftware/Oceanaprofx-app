@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
 import '../../core/trade_sound.dart';
@@ -13,6 +14,7 @@ import 'chart_controller.dart';
 import 'chart_icons.dart';
 import 'chart_models.dart';
 import 'chart_painter.dart';
+import 'market_closed_banner.dart';
 import 'one_click_bar.dart';
 import 'order_panel.dart';
 import 'radial_menu.dart';
@@ -520,6 +522,19 @@ class _ChartsScreenState extends State<ChartsScreen> {
     return t is num ? ' #${t.toInt()}' : '';
   }
 
+  bool get _marketInactive =>
+      tradingService.isQuoteInactive(widget.symbol);
+
+  void _showClosed(String side, double volume) {
+    if (!mounted) return;
+    showMarketClosedBanner(
+      context,
+      symbol: widget.symbol.toUpperCase(),
+      side: side,
+      volume: volume,
+    );
+  }
+
   Future<void> _marketOrder(
     String side,
     double volume, {
@@ -527,6 +542,10 @@ class _ChartsScreenState extends State<ChartsScreen> {
     double? tp,
   }) async {
     if (_busy) return;
+    if (_marketInactive) {
+      _showClosed(side, volume);
+      return;
+    }
     if (!await tradingService.ensureSession()) {
       _result(false, 'Not logged in. Please login to your account.');
       return;
@@ -554,7 +573,15 @@ class _ChartsScreenState extends State<ChartsScreen> {
         });
       }
     } catch (e) {
-      _result(false, '$e');
+      final msg = ApiConfig.userFacingError(e);
+      if (msg.toLowerCase().contains('market is closed') ||
+          msg.toLowerCase().contains('weekly_off') ||
+          '$e'.toLowerCase().contains('market is closed') ||
+          '$e'.toLowerCase().contains('weekly_off')) {
+        _showClosed(side, volume);
+      } else {
+        _result(false, msg);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -589,7 +616,7 @@ class _ChartsScreenState extends State<ChartsScreen> {
         _draft.tp = null;
       });
     } catch (e) {
-      _result(false, '$e');
+      _result(false, ApiConfig.userFacingError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -793,6 +820,7 @@ class _ChartsScreenState extends State<ChartsScreen> {
       ask: px?.ask,
       bidUp: _bidUp,
       askUp: _askUp,
+      inactive: _marketInactive,
       volume: _oneClickVolume,
       busy: _busy,
       onVolume: (v) => setState(() => _oneClickVolume = v),
@@ -1082,6 +1110,16 @@ class _ChartsScreenState extends State<ChartsScreen> {
         if (name.isNotEmpty)
           Text(
             name,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.1,
+              letterSpacing: -0.4,
+              color: MtColors.text,
+            ),
+          ),
+        if (_marketInactive)
+          Text(
+            'Market closed',
             style: TextStyle(
               fontSize: 12,
               height: 1.1,

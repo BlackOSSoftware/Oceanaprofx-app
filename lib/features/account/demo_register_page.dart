@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 import 'account_created_page.dart';
@@ -236,7 +237,7 @@ class _DemoRegisterPageState extends State<DemoRegisterPage> {
         ),
       );
     } catch (e) {
-      if (mounted) _snack('$e');
+      if (mounted) _snack(ApiConfig.userFacingError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

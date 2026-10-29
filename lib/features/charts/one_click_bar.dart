@@ -17,6 +17,7 @@ class OneClickBar extends StatefulWidget {
     required this.ask,
     this.bidUp = true,
     this.askUp = true,
+    this.inactive = false,
     required this.volume,
     required this.busy,
     required this.onVolume,
@@ -30,6 +31,9 @@ class OneClickBar extends StatefulWidget {
   /// Pichhle tick se upar gaya (blue) ya neeche (red) - MT5 jaisa.
   final bool bidUp;
   final bool askUp;
+
+  /// Market closed / no quote → gray SELL/BUY (screenshot jaisa).
+  final bool inactive;
   final double volume;
   final bool busy;
   final ValueChanged<double> onVolume;
@@ -303,8 +307,11 @@ class _OneClickBarState extends State<OneClickBar> {
             child: _side(
               'SELL',
               widget.bid,
-              widget.bidUp ? _blue : chartDownColor,
+              widget.inactive
+                  ? const Color(0xFFE4E4E4)
+                  : (widget.bidUp ? _blue : chartDownColor),
               () => widget.onTrade('SELL'),
+              inactive: widget.inactive,
             ),
           ),
           Expanded(
@@ -371,8 +378,11 @@ class _OneClickBarState extends State<OneClickBar> {
             child: _side(
               'BUY',
               widget.ask,
-              widget.askUp ? _blue : chartDownColor,
+              widget.inactive
+                  ? const Color(0xFFE4E4E4)
+                  : (widget.askUp ? _blue : chartDownColor),
               () => widget.onTrade('BUY'),
+              inactive: widget.inactive,
             ),
           ),
         ],
@@ -380,13 +390,21 @@ class _OneClickBarState extends State<OneClickBar> {
     );
   }
 
-  Widget _side(String label, double? price, Color color, VoidCallback onTap) {
+  Widget _side(
+    String label,
+    double? price,
+    Color color,
+    VoidCallback onTap, {
+    bool inactive = false,
+  }) {
     final busy = widget.busy;
+    final labelColor = inactive ? const Color(0xFF757575) : Colors.white;
+    final priceColor = inactive ? const Color(0xFF616161) : Colors.white;
     return Material(
-      color: busy ? color.withValues(alpha: 0.6) : color,
+      color: busy && !inactive ? color.withValues(alpha: 0.6) : color,
       child: InkWell(
-        onTap: busy || price == null ? null : onTap,
-        // Price poore dabbe ke beech me; SELL / BUY label upar-left kone me.
+        // Closed pe bhi tap chale — parent "Market closed" banner dikhayega.
+        onTap: busy ? null : onTap,
         child: Stack(
           children: [
             Positioned(
@@ -394,11 +412,11 @@ class _OneClickBarState extends State<OneClickBar> {
               top: 2,
               child: Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 9,
                   height: 1,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white,
+                  color: labelColor,
                 ),
               ),
             ),
@@ -408,7 +426,7 @@ class _OneClickBarState extends State<OneClickBar> {
                 child: Center(
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: bigPrice(price, widget.digits),
+                    child: bigPrice(price, widget.digits, color: priceColor),
                   ),
                 ),
               ),

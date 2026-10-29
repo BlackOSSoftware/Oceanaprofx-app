@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/api_config.dart';
 import 'chart_models.dart';
 import 'chart_repository.dart';
 
@@ -51,7 +52,7 @@ class ChartController extends ChangeNotifier {
       if (page.name.isNotEmpty) name = page.name;
     } catch (e) {
       if (gen != _generation) return;
-      error = '$e';
+      error = ApiConfig.userFacingError(e);
     } finally {
       if (gen == _generation) {
         loading = false;

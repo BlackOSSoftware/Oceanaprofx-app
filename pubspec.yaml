@@ -39,7 +39,10 @@ dependencies:
   audioplayers: ^6.8.1
   webview_flutter: ^4.14.1
   package_info_plus: ^10.2.2
-  app_installer_plus: ^1.2.0
+  # Local fork: KGP removed (Flutter built-in Kotlin). Pub.dev 1.2.0 still applies KGP.
+  app_installer_plus:
+    path: packages/app_installer_plus
+  shared_preferences_android: 2.5.2
 
 dev_dependencies:
   flutter_test:
@@ -105,6 +108,9 @@ flutter:
     - assets/icons/chart_sliders.png
     - assets/icons/chart_objects.png
     - assets/icons/chart_windows.png
+    - assets/icons/property_search.png
+    - assets/icons/brokers/fptrades.png
+    - assets/icons/brokers/oceana.png
     - assets/sounds/success.mp3
     - assets/sounds/error.mp3
 

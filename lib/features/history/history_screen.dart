@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/format.dart';
 import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
@@ -49,10 +50,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   ShellController? _shell;
   int _lastShellTab = -1;
+  String _accountKey = tradingService.accountKey;
 
   @override
   void initState() {
     super.initState();
+    tradingService.addListener(_onTrading);
     _load();
   }
 
@@ -69,8 +72,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   void dispose() {
+    tradingService.removeListener(_onTrading);
     _shell?.removeListener(_onShellChanged);
     super.dispose();
+  }
+
+  void _onTrading() {
+    final key = tradingService.accountKey;
+    if (key == _accountKey) return;
+    _accountKey = key;
+    _expanded.clear();
+    _positions = const [];
+    _orders = const [];
+    _deals = const [];
+    _loadedOnce = false;
+    _load();
   }
 
   /// History tab khulte hi taza data (naye band trades) lao.
@@ -150,7 +166,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '$e';
+        _error = ApiConfig.userFacingError(e);
         _loading = false;
       });
     }

@@ -24,6 +24,10 @@ class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   bool _lastLoggedIn = tradingService.hasAnyAccount;
+  String _lastAccountKey = tradingService.accountKey;
+
+  /// Sirf visit kiye tabs build — WebView/charts startup pe nahi.
+  final Set<int> _builtTabs = {0};
 
   @override
   void initState() {
@@ -33,16 +37,26 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _rebuild() {
+    _builtTabs.add(_controller.tab);
     if (mounted) setState(() {});
   }
 
   /// Live ticks har second kai baar aate hain - shell ko un pe rebuild
-  /// nahi karna, sirf login/logout badalne pe refresh karna hai.
+  /// nahi karna, sirf login/logout / account-switch pe refresh.
   /// Har screen apna live data khud sunti hai.
   void _onService() {
     final now = tradingService.hasAnyAccount;
-    if (now != _lastLoggedIn) {
+    final key = tradingService.accountKey;
+    final accountChanged = key != _lastAccountKey;
+    if (now != _lastLoggedIn || accountChanged) {
       _lastLoggedIn = now;
+      if (accountChanged) {
+        _lastAccountKey = key;
+        final wl = tradingService.watchlist;
+        if (wl.isNotEmpty) {
+          _controller.chartSymbol = wl.first.code;
+        }
+      }
       _rebuild();
     }
   }
@@ -58,6 +72,28 @@ class _MainShellState extends State<MainShell> {
 
   void _openDrawer() => _scaffoldKey.currentState?.openDrawer();
 
+  Widget _tab(int i) {
+    switch (i) {
+      case 0:
+        return QuotesScreen(onMenu: _openDrawer);
+      case 1:
+        return ChartsScreen(
+          onMenu: _openDrawer,
+          symbol: _controller.chartSymbol,
+        );
+      case 2:
+        return TradeScreen(onMenu: _openDrawer);
+      case 3:
+        return HistoryScreen(onMenu: _openDrawer);
+      case 4:
+        return MessagesScreen(onMenu: _openDrawer);
+      case 5:
+        return NewsScreen(onMenu: _openDrawer);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ShellScope(
@@ -71,15 +107,8 @@ class _MainShellState extends State<MainShell> {
           child: IndexedStack(
             index: _controller.tab,
             children: [
-              QuotesScreen(onMenu: _openDrawer),
-              ChartsScreen(
-                onMenu: _openDrawer,
-                symbol: _controller.chartSymbol,
-              ),
-              TradeScreen(onMenu: _openDrawer),
-              HistoryScreen(onMenu: _openDrawer),
-              MessagesScreen(onMenu: _openDrawer),
-              NewsScreen(onMenu: _openDrawer),
+              for (var i = 0; i < 6; i++)
+                _builtTabs.contains(i) ? _tab(i) : const SizedBox.shrink(),
             ],
           ),
         ),

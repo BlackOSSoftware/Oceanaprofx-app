@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../format.dart';
 import '../mt_colors.dart';
+import '../trading_service.dart';
 
 class MtBottomNav extends StatelessWidget {
   MtBottomNav({super.key, required this.index, required this.onChanged});
@@ -20,26 +22,45 @@ class MtBottomNav extends StatelessWidget {
           top: false,
           child: SizedBox(
             height: 56,
-            child: Row(
-              children: [
-                for (var i = 0; i < _labels.length; i++)
-                  Expanded(
-                    child: _NavItem(
-                      label: _labels[i],
-                      selected: i == index,
-                      icon: _icon(
-                        i,
-                        i == index ? MtColors.accent : MtColors.icon,
+            // Sirf Trade PnL ke liye suno — har WS tick pe pura nav mat
+            // rebuild (release open / jank kam).
+            child: ListenableBuilder(
+              listenable: tradingService,
+              builder: (context, _) {
+                final pnl = _tradeFloatingPnl();
+                return Row(
+                  children: [
+                    for (var i = 0; i < _labels.length; i++)
+                      Expanded(
+                        child: _NavItem(
+                          label: _labels[i],
+                          selected: i == index,
+                          icon: _icon(
+                            i,
+                            i == index ? MtColors.accent : MtColors.icon,
+                          ),
+                          tradePnl: i == 2 ? pnl : null,
+                          onTap: () => onChanged(i),
+                        ),
                       ),
-                      onTap: () => onChanged(i),
-                    ),
-                  ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Open positions ka total floating PnL — null agar koi position nahi.
+  double? _tradeFloatingPnl() {
+    if (tradingService.positions.isEmpty) return null;
+    var sum = 0.0;
+    for (final p in tradingService.positions.values) {
+      sum += p.floatingPnL;
+    }
+    return sum;
   }
 
   Widget _icon(int i, Color color) {
@@ -132,16 +153,20 @@ class _NavItem extends StatelessWidget {
     required this.selected,
     required this.icon,
     required this.onTap,
+    this.tradePnl,
   });
 
   final String label;
   final bool selected;
   final Widget icon;
   final VoidCallback onTap;
+  final double? tradePnl;
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? MtColors.accent : MtColors.icon;
+    final showPnl = tradePnl != null;
+    final profit = (tradePnl ?? 0) >= 0;
     return InkWell(
       onTap: onTap,
       child: Column(
@@ -149,16 +174,39 @@ class _NavItem extends StatelessWidget {
         children: [
           icon,
           const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontFamily: 'Roboto',
-              fontSize: 12,
-              height: 1.1,
-              fontWeight: FontWeight.w700,
+          if (showPnl)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: profit
+                    ? const Color(0xFFE3F0FF)
+                    : const Color(0xFFFCE4E4),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                formatMoney(tradePnl!),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: profit ? MtColors.bid : MtColors.ask,
+                  fontFamily: 'Roboto',
+                  fontSize: 11,
+                  height: 1.1,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontFamily: 'Roboto',
+                fontSize: 12,
+                height: 1.1,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
         ],
       ),
     );

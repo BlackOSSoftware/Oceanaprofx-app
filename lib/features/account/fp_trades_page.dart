@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 import 'mq_widgets.dart';
@@ -10,19 +11,22 @@ import 'mq_widgets.dart';
 /// asal trading session banta hai, WebSocket connect hota hai aur
 /// trades isi account se server par jate hain.
 class FpTradesPage extends StatefulWidget {
-  const FpTradesPage({super.key, this.initial});
+  const FpTradesPage({super.key, this.initial, this.brokerDisplayName});
 
   /// Manage Accounts ke saved card se khola ho to login pehle se bhara.
   final SavedFpAccount? initial;
+
+  /// Brokers list se aaya display name (FpTrades / Oceana Pro FX).
+  final String? brokerDisplayName;
 
   @override
   State<FpTradesPage> createState() => _FpTradesPageState();
 }
 
 class _FpTradesPageState extends State<FpTradesPage> {
-  late String _server = widget.initial?.isDemo ?? false
-      ? 'FPTrades-Demo'
-      : 'FPTrades-Live';
+  // Cosmetic only (login API broker se resolve karta hai).
+  late String _server =
+      (widget.initial?.isDemo ?? false) ? 'Demo' : 'Live';
   bool _savePassword = true;
   bool _busy = false;
   late final _loginCtrl = TextEditingController(
@@ -44,13 +48,8 @@ class _FpTradesPageState extends State<FpTradesPage> {
   }
 
   Future<void> _signIn() async {
-    // Account number asal me sirf digits ka hai; agar koi
-    // "AC" prefix laga kar dale (website par aise dikhta hai)
-    // to prefix hata kar sirf number API ko bhejo.
-    var login = _loginCtrl.text.trim().replaceAll(' ', '');
-    if (login.toUpperCase().startsWith('AC')) {
-      login = login.substring(2);
-    }
+    // Spaces hatao; AC with/without dono login() khud try karega.
+    final login = _loginCtrl.text.trim().replaceAll(' ', '');
     final pass = _passCtrl.text;
     if (login.isEmpty || pass.isEmpty) {
       _snack('Enter login and password');
@@ -64,7 +63,7 @@ class _FpTradesPageState extends State<FpTradesPage> {
         Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } catch (e) {
-      if (mounted) _snack('$e');
+      if (mounted) _snack(ApiConfig.userFacingError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -81,7 +80,7 @@ class _FpTradesPageState extends State<FpTradesPage> {
           style: TextStyle(fontSize: 20, color: MtColors.text),
         ),
         content: Text(
-          'Please contact FP Trades support to reset your account password.',
+          'Please contact your broker support to reset your account password.',
           style: TextStyle(fontSize: 15, color: MtColors.text),
         ),
         actions: [
@@ -140,7 +139,14 @@ class _FpTradesPageState extends State<FpTradesPage> {
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
               child: Row(
                 children: [
-                  const FpLogo(size: 40),
+                  FpLogo(
+                    size: 40,
+                    brokerDisplayName:
+                        (widget.brokerDisplayName ?? '').trim().isNotEmpty
+                        ? widget.brokerDisplayName!.trim()
+                        : (widget.initial?.brokerDisplayName ?? ''),
+                    brokerCode: widget.initial?.brokerCode ?? '',
+                  ),
                   const SizedBox(width: 14),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,9 +156,12 @@ class _FpTradesPageState extends State<FpTradesPage> {
                         style: TextStyle(fontSize: 17, color: MtColors.text),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        'FP Trades',
-                        style: TextStyle(
+                      Text(
+                        (widget.brokerDisplayName ?? '').trim().isNotEmpty
+                            ? widget.brokerDisplayName!.trim()
+                            : (widget.initial?.brandLabel ??
+                                ApiConfig.publicServerLabel),
+                        style: const TextStyle(
                           fontSize: 14,
                           color: Color(0xFF757575),
                         ),
@@ -181,8 +190,8 @@ class _FpTradesPageState extends State<FpTradesPage> {
                 value: _server,
                 onTap: () async {
                   final v = await showMqMenu(rowCtx, const [
-                    'FPTrades-Live',
-                    'FPTrades-Demo',
+                    'Live',
+                    'Demo',
                   ]);
                   if (v != null) setState(() => _server = v);
                 },
@@ -274,28 +283,56 @@ class _FpTradesPageState extends State<FpTradesPage> {
   }
 }
 
-/// FP Trades ka logo - navy blue rounded square me white "FP".
+/// Broker logo (FpTrades / Oceana assets). Defaults to FpTrades.
 class FpLogo extends StatelessWidget {
-  const FpLogo({super.key, required this.size});
+  const FpLogo({
+    super.key,
+    required this.size,
+    this.brokerCode = '',
+    this.brokerDisplayName = '',
+  });
 
   final double size;
+  final String brokerCode;
+  final String brokerDisplayName;
+
+  static String assetPath({
+    String brokerCode = '',
+    String brokerDisplayName = '',
+  }) {
+    final c = brokerCode.trim().toUpperCase();
+    final n = brokerDisplayName.trim().toLowerCase();
+    if (c.contains('OCEANA') || n.contains('oceana')) {
+      return 'assets/icons/brokers/oceana.png';
+    }
+    return 'assets/icons/brokers/fptrades.png';
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A4D8C),
-        borderRadius: BorderRadius.circular(size * 0.22),
-      ),
-      child: Center(
-        child: Text(
-          'FP',
-          style: TextStyle(
-            fontSize: size * 0.42,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+    final path = assetPath(
+      brokerCode: brokerCode,
+      brokerDisplayName: brokerDisplayName,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.22),
+      child: Image.asset(
+        path,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+          width: size,
+          height: size,
+          color: const Color(0xFF0A4D8C),
+          alignment: Alignment.center,
+          child: Text(
+            'FP',
+            style: TextStyle(
+              fontSize: size * 0.42,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
           ),
         ),
       ),

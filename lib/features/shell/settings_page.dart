@@ -8,42 +8,6 @@ import '../../core/trading_service.dart';
 class SettingsPage extends StatelessWidget {
   SettingsPage({super.key});
 
-  Future<void> _editServer(BuildContext context) async {
-    final ctrl = TextEditingController(text: ApiConfig.host);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Backend address'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'host:port',
-            hintText: '172.30.72.20:4000',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ApiConfig.save(ctrl.text);
-      tradingService.reconnectWs();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Server updated. Restart app.')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -105,15 +69,13 @@ class SettingsPage extends StatelessWidget {
               ),
               ListTile(
                 title: Text(
-                  'Backend address',
+                  'Trading server',
                   style: TextStyle(color: MtColors.text, fontSize: 16),
                 ),
                 subtitle: Text(
-                  ApiConfig.host,
+                  ApiConfig.publicServerLabel,
                   style: TextStyle(color: MtColors.textSecondary),
                 ),
-                trailing: Icon(Icons.edit_outlined, color: MtColors.icon),
-                onTap: () => _editServer(context),
               ),
               ListTile(
                 title: Text(
@@ -124,7 +86,7 @@ class SettingsPage extends StatelessWidget {
                   listenable: tradingService,
                   builder: (context, _) => Text(
                     tradingService.wsConnected
-                        ? 'Live (WebSocket connected)'
+                        ? 'Connected'
                         : 'Connecting...',
                     style: TextStyle(
                       color: tradingService.wsConnected

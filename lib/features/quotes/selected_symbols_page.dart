@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 import 'quote_data.dart';
@@ -97,7 +98,9 @@ class _SelectedSymbolsPageState extends State<SelectedSymbolsPage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ).showSnackBar(
+          SnackBar(content: Text(ApiConfig.userFacingError(e))),
+        );
       }
     }
   }
@@ -503,7 +506,9 @@ class _AddSymbolsPageState extends State<AddSymbolsPage> {
       // API fail ho to UI wapas purani state par.
       if (!mounted) return;
       _flipLocal(w, added);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiConfig.userFacingError(e))),
+      );
     }
   }
 

@@ -4,11 +4,10 @@ packages:
   app_installer_plus:
     dependency: "direct main"
     description:
-      name: app_installer_plus
-      sha256: ee68a0c5f48ef205d0992449f7df1ef54c2d15f4a060deb2e74ba93801774a33
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.2.0"
+      path: "packages/app_installer_plus"
+      relative: true
+    source: path
+    version: "1.2.0+builtin-kotlin"
   args:
     dependency: transitive
     description:
@@ -465,13 +464,13 @@ packages:
     source: hosted
     version: "2.5.6"
   shared_preferences_android:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: shared_preferences_android
-      sha256: a67a1a6a62b241ad4ddd8a97f5a12bb547c445190930233b63cd28cc0a104a76
+      sha256: "732b86c5c726402ac781a9fe14fe9cadad3c7dde8f99c72ab43a75a307077336"
       url: "https://pub.dev"
     source: hosted
-    version: "2.5.1"
+    version: "2.5.2"
   shared_preferences_foundation:
     dependency: transitive
     description:

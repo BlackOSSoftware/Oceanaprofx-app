@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/format.dart';
 import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
@@ -23,6 +24,7 @@ class _TradeScreenState extends State<TradeScreen> {
   final _expanded = <String>{};
   int _sortMode = 0; // 0 time, 1 symbol, 2 profit, 3 order (ticket)
   bool _sortDesc = true;
+  String _accountKey = tradingService.accountKey;
 
   /// Naya field chunne pe uska natural order: time/profit me
   /// bada pehle, symbol A-Z aur order ticket chhota pehle.
@@ -134,7 +136,30 @@ class _TradeScreenState extends State<TradeScreen> {
   @override
   void initState() {
     super.initState();
+    tradingService.addListener(_onTrading);
+    _reloadForAccount();
+  }
+
+  @override
+  void dispose() {
+    tradingService.removeListener(_onTrading);
+    super.dispose();
+  }
+
+  void _onTrading() {
+    final key = tradingService.accountKey;
+    if (key == _accountKey) return;
+    _accountKey = key;
+    _expanded.clear();
+    _reloadForAccount();
+    if (mounted) setState(() {});
+  }
+
+  void _reloadForAccount() {
     tradingService.refreshAccount();
+    for (final p in tradingService.positions.values) {
+      tradingService.ensureSubscribed(p.symbol);
+    }
   }
 
   List<LivePosition> get _positions {
@@ -372,7 +397,7 @@ class _TradeScreenState extends State<TradeScreen> {
         ok++;
       } catch (e) {
         failed++;
-        firstError ??= '$e';
+        firstError ??= ApiConfig.userFacingError(e);
       }
     }
     return (ok, failed, firstError);
@@ -744,7 +769,12 @@ class _TradeScreenState extends State<TradeScreen> {
   }
 
   Widget _positionContent(LivePosition p, {required bool expanded}) {
-    final digits = digitsFor(p.symbol, p.openPrice);
+    // Right price = live bid/ask (Quotes jaisa), left = entry (MT5 style, fixed).
+    final q = tradingService.quoteFor(p.symbol);
+    final mark = (q != null && q.hasPrice)
+        ? (p.isBuy ? q.bid : q.ask)
+        : p.currentPrice;
+    final digits = digitsFor(p.symbol, mark > 0 ? mark : p.openPrice);
     String fmt(double v) => v.toStringAsFixed(digits);
     final profitColor = p.floatingPnL >= 0 ? MtColors.bid : MtColors.ask;
     return Column(
@@ -786,7 +816,7 @@ class _TradeScreenState extends State<TradeScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${fmt(p.openPrice)} → ${fmt(p.currentPrice)}',
+                    '${fmt(p.openPrice)} → ${fmt(mark)}',
                     style: TextStyle(
                       fontSize: 14,
                       height: 0.9,
@@ -877,7 +907,9 @@ class _TradeScreenState extends State<TradeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ).showSnackBar(
+          SnackBar(content: Text(ApiConfig.userFacingError(e))),
+        );
       }
     }
   }
@@ -1067,7 +1099,7 @@ class _TradeScreenState extends State<TradeScreen> {
   }
 
   String _pendingMarketPrice(PendingOrder o, int digits) {
-    final q = tradingService.quotes[o.symbol.toUpperCase()];
+    final q = tradingService.quoteFor(o.symbol);
     var px = 0.0;
     if (q != null && q.hasPrice) {
       px = o.isBuy ? q.bid : q.ask;

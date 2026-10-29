@@ -6,10 +6,10 @@ import '../../core/mt_colors.dart';
 import '../../core/shell_controller.dart';
 import '../../core/trading_service.dart';
 import '../../core/widgets/mt_bottom_nav.dart';
+import '../../core/widgets/mt_corner_ribbon.dart';
 import '../account/account_data.dart';
 import '../account/accounts_page.dart';
 import '../account/fp_trades_page.dart';
-import 'settings_page.dart';
 import 'simple_page.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -40,17 +40,40 @@ class AppDrawer extends StatelessWidget {
             Stack(
               children: [
                 const _Header(),
+                // Readonly → left (MT5 / Exness style).
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: ListenableBuilder(
+                    listenable: tradingService,
+                    builder: (context, _) {
+                      final s = tradingService.session;
+                      if (s == null || !s.isWatchSession) {
+                        return const SizedBox.shrink();
+                      }
+                      return const MtCornerRibbon.watch();
+                    },
+                  ),
+                ),
+                // Demo → right green ribbon.
                 Positioned(
                   top: 0,
                   right: 0,
                   child: ListenableBuilder(
                     listenable: tradingService,
-                    builder: (context, _) => tradingService.hasAnyAccount
-                        ? const CustomPaint(
-                            size: Size(56, 56),
-                            painter: _DemoRibbonPainter(),
-                          )
-                        : const SizedBox.shrink(),
+                    builder: (context, _) {
+                      if (!tradingService.hasAnyAccount) {
+                        return const SizedBox.shrink();
+                      }
+                      final type =
+                          (tradingService.session?.accountType ?? '')
+                              .trim()
+                              .toLowerCase();
+                      final isDemo =
+                          tradingService.mqLoggedIn || type.contains('demo');
+                      if (!isDemo) return const SizedBox.shrink();
+                      return const MtCornerRibbon.demo();
+                    },
                   ),
                 ),
               ],
@@ -149,7 +172,22 @@ class AppDrawer extends StatelessWidget {
                       ),
                     ),
                     label: 'Settings',
-                    onTap: () => _openPage(context, SettingsPage()),
+                    onTap: () => _openPage(
+                      context,
+                      SimplePage(
+                        title: 'Settings',
+                        child: Center(
+                          child: Text(
+                            'Coming Soon',
+                            style: TextStyle(
+                              fontFamily: 'Roboto',
+                              fontSize: 18,
+                              color: MtColors.icon,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                   _Entry(
                     icon: Icon(
@@ -255,8 +293,8 @@ class AppDrawer extends StatelessWidget {
                               const SizedBox(height: 16),
                               Text(
                                 tradingService.session != null
-                                    ? 'Account: ${tradingService.session!.accountNumber}\nServer: ${ApiConfig.host}'
-                                    : 'Server: ${ApiConfig.host}',
+                                    ? 'Account: ${tradingService.session!.accountNumber}\nServer: ${tradingService.session!.serverLabel}'
+                                    : 'Server: ${ApiConfig.publicServerLabel}',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 13,
@@ -313,82 +351,17 @@ List<String> _journalLines() {
   String t(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';
   final s = tradingService.session;
+  final serverLabel =
+      s?.serverLabel ?? ApiConfig.publicServerLabel;
   return [
-    '${t(now)}  Network: ${tradingService.wsConnected ? 'connected' : 'connecting'} to ${ApiConfig.host}',
+    '${t(now)}  Network: ${tradingService.wsConnected ? 'connected' : 'connecting'}',
     if (s != null)
       '${t(now)}  Authorized: account ${s.accountNumber} (${s.sessionType})',
-    '${t(now)}  Server: ${ApiConfig.host}',
+    '${t(now)}  Server: $serverLabel',
     '${t(now)}  Watchlist: ${tradingService.watchlist.length} symbols',
     '${t(now)}  Quotes: ${tradingService.quotes.length} symbols subscribed',
     '${t(now)}  Positions: ${tradingService.positions.length} open',
   ];
-}
-
-class _DemoRibbonPainter extends CustomPainter {
-  const _DemoRibbonPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.clipRect(Offset.zero & size);
-    final w = size.width;
-    // Diagonal band across the corner only: from the top edge to the right edge.
-    final a = w * 0.42;
-    final b = w * 0.98;
-    final band = Path()
-      ..moveTo(w - b, 0)
-      ..lineTo(w - a, 0)
-      ..lineTo(w, a)
-      ..lineTo(w, b)
-      ..close();
-    canvas.drawPath(band, Paint()..color = const Color(0xFF46A81E));
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: 'Demo',
-        style: TextStyle(
-          fontFamily: 'Roboto',
-          color: MtColors.foreground,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-          shadows: [
-            Shadow(
-              color: Color(0xE61B5E20),
-              offset: Offset(1.5, 0),
-              blurRadius: 3,
-            ),
-            Shadow(
-              color: Color(0xE61B5E20),
-              offset: Offset(-1.5, 0),
-              blurRadius: 3,
-            ),
-            Shadow(
-              color: Color(0xE61B5E20),
-              offset: Offset(0, 1.5),
-              blurRadius: 3,
-            ),
-            Shadow(
-              color: Color(0xE61B5E20),
-              offset: Offset(0, -1.5),
-              blurRadius: 3,
-            ),
-          ],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final center = Offset(w - (a + b) / 4, (a + b) / 4);
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(0.785398);
-    textPainter.paint(
-      canvas,
-      Offset(-textPainter.width / 2, -textPainter.height / 2),
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Header shown when no account is logged in (MT5 style):
@@ -556,16 +529,24 @@ class _Header extends StatelessWidget {
   Widget _loggedIn(BuildContext context) {
     // FP Trades account ho to sidebar me FP ka logo, MT5 wala nahi.
     final isFp = tradingService.session?.source == 'server';
+    final isWatch = tradingService.session?.isWatchSession == true;
+    // Read-only left ribbon ke bagal margin — profile same top pe, sirf right shift.
+    final leftPad = isWatch ? 58.0 : 16.0;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          padding: EdgeInsets.fromLTRB(leftPad, 16, 16, 20),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (isFp)
-                const FpLogo(size: 30)
+                FpLogo(
+                  size: 30,
+                  brokerCode: tradingService.session?.brokerCode ?? '',
+                  brokerDisplayName:
+                      tradingService.session?.brokerDisplayName ?? '',
+                )
               else
                 Image.asset(
                   'assets/icons/mt5_logo.png',
@@ -573,7 +554,7 @@ class _Header extends StatelessWidget {
                   height: 30,
                   fit: BoxFit.contain,
                 ),
-              SizedBox(width: 16),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -598,10 +579,10 @@ class _Header extends StatelessWidget {
                         );
                       },
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
                       tradingService.session != null
-                          ? '${tradingService.session!.accountNumber} - ${ApiConfig.serverNameFor(tradingService.session!.accountType)}'
+                          ? '${tradingService.session!.accountNumber} - ${tradingService.session!.serverLabel}'
                           : demoAccount.loginLine,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

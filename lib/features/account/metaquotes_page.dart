@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api_config.dart';
 import '../../core/mt_colors.dart';
 import '../../core/trading_service.dart';
 import 'demo_register_page.dart';
@@ -76,7 +77,7 @@ class _MetaQuotesPageState extends State<MetaQuotesPage> {
         if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
       }
     } catch (e) {
-      if (mounted) _snack('$e');
+      if (mounted) _snack(ApiConfig.userFacingError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

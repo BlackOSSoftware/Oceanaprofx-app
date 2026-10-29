@@ -13,6 +13,7 @@ class Quote {
     required this.high,
     required this.priceUp,
     required this.digits,
+    this.inactive = false,
   });
 
   final String symbol;
@@ -28,6 +29,9 @@ class Quote {
   final String high;
   final bool priceUp;
   final int digits;
+
+  /// Market closed / no live quote → bid/ask gray (not blue/red).
+  final bool inactive;
 
   double get base => double.parse(low);
 }

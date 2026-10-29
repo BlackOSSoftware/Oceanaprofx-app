@@ -1,11 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/mt_colors.dart';
+import '../../core/trading_service.dart';
 import 'fp_trades_page.dart';
 import 'metaquotes_page.dart';
 
 /// Brokers screen shown after tapping "Add Trading Account":
-/// search field, MetaQuotes Ltd. row and the search hint in the middle.
+/// search field + MetaQuotes + live brokers from `/v1/brokers/public`.
 class BrokersPage extends StatefulWidget {
   const BrokersPage({super.key});
 
@@ -15,13 +18,60 @@ class BrokersPage extends StatefulWidget {
 
 class _BrokersPageState extends State<BrokersPage> {
   String _query = '';
+  List<PublicBroker> _brokers = const [];
+  bool _loading = true;
+  String? _error;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load([String q = '']) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await tradingService.searchPublicBrokers(q: q);
+      if (!mounted) return;
+      setState(() {
+        _brokers = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = ApiConfigSafe.message(e);
+        _loading = false;
+        _brokers = const [];
+      });
+    }
+  }
+
+  void _onQueryChanged(String v) {
+    setState(() => _query = v);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 280), () {
+      _load(v);
+    });
+  }
+
+  bool get _showMetaQuotes {
+    final q = _query.trim().toLowerCase();
+    return q.isEmpty || 'metaquotes ltd.'.contains(q) || 'metaquotes'.contains(q);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final q = _query.trim().toLowerCase();
-    final showBroker = q.isEmpty || 'metaquotes ltd.'.contains(q);
-    final showFp =
-        q.isEmpty || 'fp trades'.contains(q) || 'fptrades'.contains(q);
     return Scaffold(
       backgroundColor: MtColors.white,
       body: SafeArea(
@@ -73,7 +123,7 @@ class _BrokersPageState extends State<BrokersPage> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: TextField(
-                      onChanged: (v) => setState(() => _query = v),
+                      onChanged: _onQueryChanged,
                       style: TextStyle(fontSize: 18, color: MtColors.text),
                       decoration: InputDecoration(
                         isDense: true,
@@ -91,147 +141,113 @@ class _BrokersPageState extends State<BrokersPage> {
             ),
             const SizedBox(height: 10),
             Divider(height: 1, thickness: 1, color: MtColors.line),
-            if (showBroker) ...[
-              InkWell(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const MetaQuotesPage(),
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Row(
-                    children: [
-                      Image.asset(
+            if (_loading)
+              const LinearProgressIndicator(minHeight: 2)
+            else
+              const SizedBox(height: 2),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (_showMetaQuotes) ...[
+                    _BrokerTile(
+                      leading: Image.asset(
                         'assets/icons/mt5_logo.png',
                         width: 42,
                         height: 42,
                         fit: BoxFit.contain,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'MetaQuotes Ltd.',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                                color: MtColors.text,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'MetaQuotes',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: MtColors.accent,
-                              ),
-                            ),
-                          ],
+                      title: 'MetaQuotes Ltd.',
+                      subtitle: 'MetaQuotes',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MetaQuotesPage(),
                         ),
                       ),
-                      Icon(Icons.info_outline, size: 26, color: MtColors.icon),
-                    ],
-                  ),
-                ),
-              ),
-              Divider(height: 1, thickness: 1, color: MtColors.line),
-            ],
-            if (showFp) ...[
-              InkWell(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const FpTradesPage()),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Row(
-                    children: [
-                      const FpLogo(size: 42),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'FP Trades',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                                color: MtColors.text,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'fptrades.com',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: MtColors.accent,
-                              ),
-                            ),
-                          ],
+                    ),
+                    Divider(height: 1, thickness: 1, color: MtColors.line),
+                  ],
+                  for (final b in _brokers) ...[
+                    _BrokerTile(
+                      leading: FpLogo(
+                        size: 42,
+                        brokerCode: b.code,
+                        brokerDisplayName: b.displayName,
+                      ),
+                      title: b.displayName,
+                      subtitle: b.subtitle,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => FpTradesPage(
+                            brokerDisplayName: b.displayName,
+                          ),
                         ),
                       ),
-                      Icon(Icons.info_outline, size: 26, color: MtColors.icon),
-                    ],
-                  ),
-                ),
-              ),
-              Divider(height: 1, thickness: 1, color: MtColors.line),
-            ],
-            Expanded(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.manage_search,
-                        size: 120,
-                        color: MtColors.line,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Use search to find a company',
+                    ),
+                    Divider(height: 1, thickness: 1, color: MtColors.line),
+                  ],
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _error!,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 17,
+                          fontSize: 15,
                           color: MtColors.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'This application may feature brokerage companies which\n'
-                        'may not be regulated in your country. Exercise caution and\n'
-                        'responsibility before opening an account with any brokerage\n'
-                        'company.',
+                    )
+                  else if (!_loading &&
+                      _brokers.isEmpty &&
+                      !_showMetaQuotes)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
+                      child: Text(
+                        'No brokers match “$_query”',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 13,
-                          height: 1.35,
+                          fontSize: 16,
                           color: MtColors.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      Text(
-                        'Contact details are provided for each company. Use them\n'
-                        'to further research their regulatory status and services.\n'
-                        'MetaQuotes may not possess complete and updated\n'
-                        'information about the regulation status of brokerage\n'
-                        'companies in particular countries and does not guarantee\n'
-                        'their reliability or reputation.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.35,
-                          color: MtColors.textSecondary,
-                        ),
+                    )
+                  else if (!_loading && _brokers.isEmpty && _query.trim().isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.manage_search,
+                            size: 120,
+                            color: MtColors.line,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Use search to find a company',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 17,
+                              color: MtColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'This application may feature brokerage companies which\n'
+                            'may not be regulated in your country. Exercise caution and\n'
+                            'responsibility before opening an account with any brokerage\n'
+                            'company.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: MtColors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
               ),
             ),
             Container(
@@ -251,6 +267,66 @@ class _BrokersPageState extends State<BrokersPage> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Avoid importing api_config just for one scrub helper here.
+abstract final class ApiConfigSafe {
+  static String message(Object e) {
+    final s = '$e'.trim();
+    if (s.isEmpty) return 'Unable to load brokers';
+    return s.replaceFirst(RegExp(r'^Exception:\s*'), '');
+  }
+}
+
+class _BrokerTile extends StatelessWidget {
+  const _BrokerTile({
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          children: [
+            leading,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: MtColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 15, color: MtColors.accent),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.info_outline, size: 26, color: MtColors.icon),
           ],
         ),
       ),
