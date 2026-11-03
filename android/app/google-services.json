@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "765551311020",
+    "project_id": "trading-fdee2",
+    "storage_bucket": "trading-fdee2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:765551311020:android:6df7c5b5d100cad6d8c709",
+        "android_client_info": {
+          "package_name": "com.alstrades.portal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIeFuQBEwX41yHsZgCtIhpR8-_r6I6Xjc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:765551311020:android:176852485f79815ad8c709",
+        "android_client_info": {
+          "package_name": "com.mt5app.mt5_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIeFuQBEwX41yHsZgCtIhpR8-_r6I6Xjc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

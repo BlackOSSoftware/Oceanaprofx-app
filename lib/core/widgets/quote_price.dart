@@ -18,6 +18,7 @@ class QuotePrice extends StatelessWidget {
     final prefix = head.length >= 2 ? head.substring(0, head.length - 2) : '';
     const family = 'Roboto Condensed';
 
+    // Screenshot ratio: prefix medium, last-2 pips ~1.45× + bold, tail tiny superscript.
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,7 +34,7 @@ class QuotePrice extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: family,
                   color: color,
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.w500,
                   height: 1,
                 ),
@@ -43,21 +44,24 @@ class QuotePrice extends StatelessWidget {
               style: TextStyle(
                 fontFamily: family,
                 color: color,
-                fontSize: 28,
-                fontWeight: FontWeight.w500,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
                 height: 1,
               ),
             ),
           ],
         ),
-        Text(
-          tail,
-          style: TextStyle(
-            fontFamily: family,
-            color: color,
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            height: 1,
+        Transform.translate(
+          offset: const Offset(0.5, -1),
+          child: Text(
+            tail,
+            style: TextStyle(
+              fontFamily: family,
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              height: 1,
+            ),
           ),
         ),
       ],

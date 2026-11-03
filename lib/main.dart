@@ -3,16 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'app/mt_app.dart';
+import 'app/oceana_app.dart';
 import 'core/api_config.dart';
+import 'core/push_notifications.dart';
 import 'core/trading_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Pehli paint pehle — SharedPreferences/network await mat karo,
-  // warna splash pe APK stuck / bohot slow lagta hai.
   _applySystemUi();
-  runApp(const MtApp());
+  runApp(const OceanaApp());
   unawaited(_bootstrapAfterFirstFrame());
 }
 
@@ -22,18 +21,21 @@ void _applySystemUi() {
       statusBarColor: Colors.white,
       statusBarIconBrightness: Brightness.dark,
       statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: Colors.white,
-      systemNavigationBarIconBrightness: Brightness.dark,
+      // Phone system nav (back/home) — black even on white app theme.
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarDividerColor: Colors.black,
     ),
   );
 }
 
 Future<void> _bootstrapAfterFirstFrame() async {
-  // Ek frame paint hone do, phir disk + network.
   await Future<void>.delayed(Duration.zero);
   await Future.wait([
     ApiConfig.load(),
     tradingService.restoreLocal(),
   ]);
   unawaited(tradingService.bootstrapNetwork());
+  // FCM after session restore so token can bind to portal user.
+  unawaited(PushNotifications.init());
 }

@@ -34,8 +34,10 @@ List<Quote> liveDisplayQuotes() {
   final symbols = tradingService.watchlist.isNotEmpty
       ? tradingService.watchlist.map((w) => w.code).toList()
       : quotes.map((q) => q.symbol).toList();
-  return [for (final sym in symbols) _displayQuote(sym)];
+  return [for (final sym in symbols) displayQuoteFor(sym)];
 }
+
+Quote displayQuoteFor(String symbol) => _displayQuote(symbol);
 
 Quote _displayQuote(String symbol) {
   final fallback = quoteBySymbol(symbol);

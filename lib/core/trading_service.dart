@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_config.dart';
@@ -12,6 +13,14 @@ class ApiException implements Exception {
   final String message;
   @override
   String toString() => ApiConfig.scrubMessage(message);
+}
+
+/// Login succeeded but email is not verified — show verify screen (Trade-Portal).
+class EmailNotVerifiedException implements Exception {
+  EmailNotVerifiedException(this.email);
+  final String email;
+  @override
+  String toString() => 'Please verify your email first';
 }
 
 class Session {
@@ -419,7 +428,7 @@ class PendingOrder {
     ticket: (j['ticket'] as num?)?.toInt(),
     symbol: '${j['symbol'] ?? ''}',
     side: '${j['side'] ?? 'BUY'}',
-    orderType: '${j['orderType'] ?? ''}',
+    orderType: '${j['orderType'] ?? j['type'] ?? j['order_type'] ?? ''}',
     volume: _d(j['volume'] ?? j['qty']),
     filledVolume: _d(j['filledVolume'] ?? j['volumeFilled']),
     price: _d(j['price'] ?? j['openPrice']),
@@ -490,12 +499,133 @@ DateTime? _date(Object? v) {
   return DateTime.tryParse('$v');
 }
 
+/// Portal (email) session — lists accounts; trading still needs [Session].
+class UserPortalSession {
+  const UserPortalSession({
+    required this.accessToken,
+    this.refreshToken = '',
+    this.email = '',
+  });
+
+  final String accessToken;
+  final String refreshToken;
+  final String email;
+
+  Map<String, dynamic> toJson() => {
+        'accessToken': accessToken,
+        'refreshToken': refreshToken,
+        'email': email,
+      };
+
+  factory UserPortalSession.fromJson(Map<String, dynamic> j) =>
+      UserPortalSession(
+        accessToken: '${j['accessToken'] ?? ''}',
+        refreshToken: '${j['refreshToken'] ?? ''}',
+        email: '${j['email'] ?? ''}',
+      );
+}
+
+/// One trading account under the logged-in email user.
+class LinkedTradingAccount {
+  const LinkedTradingAccount({
+    required this.id,
+    required this.accountNumber,
+    required this.accountType,
+    this.planName = '',
+    this.balance = 0,
+    this.equity = 0,
+    this.currency = 'USD',
+    this.status = 'active',
+    this.isPrimary = false,
+  });
+
+  final String id;
+  final String accountNumber;
+  final String accountType;
+  final String planName;
+  final double balance;
+  final double equity;
+  final String currency;
+  final String status;
+  final bool isPrimary;
+
+  bool get isDemo => accountType.toLowerCase().contains('demo');
+  bool get isLive => !isDemo;
+
+  factory LinkedTradingAccount.fromJson(Map<String, dynamic> j) =>
+      LinkedTradingAccount(
+        id: '${j['_id'] ?? j['id'] ?? ''}',
+        accountNumber: '${j['account_number'] ?? ''}',
+        accountType: '${j['account_type'] ?? ''}',
+        planName: '${j['plan_name'] ?? ''}',
+        balance: (j['balance'] as num?)?.toDouble() ?? 0,
+        equity: (j['equity'] as num?)?.toDouble() ?? 0,
+        currency: '${j['currency'] ?? 'USD'}',
+        status: '${j['status'] ?? 'active'}',
+        isPrimary: j['is_primary'] == true || j['isPrimary'] == true,
+      );
+}
+
 /// Central live-trading service: REST (account-auth) + market/account WS.
 class TradingService extends ChangeNotifier {
   TradingService();
 
+  /// Own listener list so a dead hot-reload tear-off can be purged
+  /// instead of spamming NoSuchMethodError on every tick (UI freeze).
+  final List<VoidCallback?> _uiListeners = <VoidCallback?>[];
+
+  @override
+  void addListener(VoidCallback listener) {
+    _uiListeners.add(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    for (var i = 0; i < _uiListeners.length; i++) {
+      if (_uiListeners[i] == listener) {
+        _uiListeners[i] = null;
+        break;
+      }
+    }
+  }
+
+  @override
+  bool get hasListeners => _uiListeners.any((l) => l != null);
+
+  @override
+  void notifyListeners() {
+    if (_uiListeners.isEmpty) return;
+    final snap = List<VoidCallback?>.of(_uiListeners);
+    var compact = false;
+    for (final listener in snap) {
+      if (listener == null) {
+        compact = true;
+        continue;
+      }
+      try {
+        listener();
+      } catch (_) {
+        // Hot reload left a deleted method tear-off — drop it once.
+        removeListener(listener);
+        compact = true;
+      }
+    }
+    if (compact) {
+      _uiListeners.removeWhere((l) => l == null);
+    }
+  }
+
   Session? session;
   bool get isLoggedIn => session != null;
+
+  /// Email/password portal identity (before / after picking a trading account).
+  UserPortalSession? userPortal;
+  bool get hasUserPortal =>
+      userPortal != null && userPortal!.accessToken.isNotEmpty;
+  List<LinkedTradingAccount> linkedAccounts = const [];
+  static const _userPortalKey = 'user_portal_session';
+  /// Last successful email login (prefill Login form — survives logout).
+  static const _emailCredsKey = 'email_login_credentials';
 
   // MetaQuotes demo account (Brokers -> MetaQuotes Ltd.) - profile.
   // Iska apna server trading account hai; active hone par [session]
@@ -503,8 +633,8 @@ class TradingService extends ChangeNotifier {
   Map<String, dynamic>? mqAccount;
   bool get mqLoggedIn => activeSource == 'mq' && mqAccount != null;
 
-  /// Koi account active hai (warna app logged-out screens dikhata hai).
-  bool get hasAnyAccount => isLoggedIn || mqLoggedIn;
+  /// Trading session OR email portal (account picker) counts as signed-in.
+  bool get hasAnyAccount => isLoggedIn || mqLoggedIn || hasUserPortal;
 
   /// Sidebar ribbon: active session demo hai ya live.
   /// MQ MetaQuotes accounts demo treat; FP pe session.accountType.
@@ -585,6 +715,14 @@ class TradingService extends ChangeNotifier {
     if (raw != null) {
       try {
         session = Session.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {}
+    }
+    final portalRaw = prefs.getString(_userPortalKey);
+    if (portalRaw != null) {
+      try {
+        userPortal = UserPortalSession.fromJson(
+          jsonDecode(portalRaw) as Map<String, dynamic>,
+        );
       } catch (_) {}
     }
     notifyListeners();
@@ -684,11 +822,13 @@ class TradingService extends ChangeNotifier {
   }) async {
     final token = data['tradeToken'] as String?;
     if (token == null) throw ApiException('Login failed: no token');
+    final number = '${data['account_number'] ?? data['accountNumber'] ?? ''}'
+        .trim();
     final next = Session(
       token: token,
-      accountId: '${data['accountId'] ?? ''}',
-      accountNumber: '${data['account_number'] ?? fallbackNumber}',
-      accountType: '${data['account_type'] ?? ''}',
+      accountId: '${data['accountId'] ?? data['account_id'] ?? ''}',
+      accountNumber: number.isNotEmpty ? number : fallbackNumber.trim(),
+      accountType: '${data['account_type'] ?? data['accountType'] ?? ''}',
       sessionType: '${data['sessionType'] ?? 'TRADE'}',
       name: '${data['name'] ?? ''}',
       refreshToken: '${data['refreshToken'] ?? ''}',
@@ -767,6 +907,590 @@ class TradingService extends ChangeNotifier {
       );
     }).toList();
   }
+
+  Future<void> _persistUserPortal() async {
+    final prefs = await SharedPreferences.getInstance();
+    final p = userPortal;
+    if (p == null || p.accessToken.isEmpty) {
+      await prefs.remove(_userPortalKey);
+    } else {
+      await prefs.setString(_userPortalKey, jsonEncode(p.toJson()));
+    }
+  }
+
+  /// Last email + password used for portal login (device local).
+  Future<({String email, String password})?> savedEmailLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_emailCredsKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final j = jsonDecode(raw);
+      if (j is! Map) return null;
+      final email = '${j['email'] ?? ''}'.trim();
+      final password = '${j['password'] ?? ''}';
+      if (email.isEmpty || password.isEmpty) return null;
+      return (email: email, password: password);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> rememberEmailLogin(String email, String password) async {
+    final prefs = await SharedPreferences.getInstance();
+    final e = email.trim().toLowerCase();
+    if (e.isEmpty || password.isEmpty) {
+      await prefs.remove(_emailCredsKey);
+      return;
+    }
+    await prefs.setString(
+      _emailCredsKey,
+      jsonEncode({'email': e, 'password': password}),
+    );
+  }
+
+  /// Email + portal password → user JWT, then open primary trading account.
+  Future<void> loginWithEmail(String email, String password) async {
+    final data = await _request(
+      'POST',
+      '/v1/auth/login',
+      auth: false,
+      body: {
+        'email': email.trim().toLowerCase(),
+        'password': password,
+      },
+    );
+    final payload = data['data'] is Map
+        ? Map<String, dynamic>.from(data['data'] as Map)
+        : data;
+    final access = '${payload['accessToken'] ?? ''}';
+    if (access.isEmpty) {
+      throw ApiException('Login failed');
+    }
+    final mailOk = payload['isMailVerified'] == true ||
+        payload['isMailVerified'] == 1 ||
+        '${payload['isMailVerified']}'.toLowerCase() == 'true';
+    if (!mailOk) {
+      throw EmailNotVerifiedException(email.trim().toLowerCase());
+    }
+    userPortal = UserPortalSession(
+      accessToken: access,
+      refreshToken: '${payload['refreshToken'] ?? ''}',
+      email: email.trim().toLowerCase(),
+    );
+    loggedOutByUser = false;
+    await _persistUserPortal();
+    await rememberEmailLogin(email, password);
+    await refreshLinkedAccounts();
+    await activatePrimaryAccount();
+    notifyListeners();
+  }
+
+  /// `POST /v1/user/save-fcm-token` — links this device to the portal user.
+  Future<void> saveFcmToken(String token) async {
+    final t = token.trim();
+    if (t.isEmpty) return;
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    await _request(
+      'POST',
+      '/v1/user/save-fcm-token',
+      auth: false,
+      userAuth: true,
+      body: {
+        'token': t,
+        'platform': Platform.isIOS ? 'ios' : 'android',
+      },
+    );
+  }
+
+  /// Unread inbox for portal user (`GET /v1/notification/inbox`).
+  Future<({List<Map<String, dynamic>> list, int unreadCount})>
+      fetchNotificationInbox({int limit = 40}) async {
+    if (!hasUserPortal) {
+      return (list: <Map<String, dynamic>>[], unreadCount: 0);
+    }
+    final data = await _request(
+      'GET',
+      '/v1/notification/inbox',
+      auth: false,
+      userAuth: true,
+      query: {'limit': '$limit'},
+    );
+    final raw = data['list'];
+    final list = raw is List
+        ? raw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final unread = (data['unreadCount'] as num?)?.toInt() ?? list.length;
+    return (list: list, unreadCount: unread);
+  }
+
+  Future<int> fetchNotificationUnreadCount() async {
+    if (!hasUserPortal) return 0;
+    final data = await _request(
+      'GET',
+      '/v1/notification/inbox/count',
+      auth: false,
+      userAuth: true,
+    );
+    return (data['unreadCount'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> markNotificationRead(String id) async {
+    if (!hasUserPortal || id.trim().isEmpty) return 0;
+    final data = await _request(
+      'POST',
+      '/v1/notification/inbox/${Uri.encodeComponent(id.trim())}/read',
+      auth: false,
+      userAuth: true,
+    );
+    return (data['unreadCount'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    if (!hasUserPortal) return;
+    await _request(
+      'POST',
+      '/v1/notification/inbox/read-all',
+      auth: false,
+      userAuth: true,
+    );
+  }
+
+  /// Resend email verification link (`POST /v1/auth/resend-verify-email`).
+  Future<void> resendVerifyEmail(String email) async {
+    final trimmed = email.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      throw ApiException('Please enter your email');
+    }
+    await _request(
+      'POST',
+      '/v1/auth/resend-verify-email',
+      auth: false,
+      body: {'email': trimmed},
+    );
+  }
+
+  /// Forgot password — backend emails reset link (`POST /v1/auth/forgot-password`).
+  Future<String> forgotPassword(String email) async {
+    final trimmed = email.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      throw ApiException('Please enter your email');
+    }
+    final data = await _request(
+      'POST',
+      '/v1/auth/forgot-password',
+      auth: false,
+      body: {'email': trimmed},
+    );
+    final msg = '${data['message'] ?? ''}'.trim();
+    return msg.isEmpty
+        ? 'Reset link sent to your email successfully'
+        : msg;
+  }
+
+  /// Active account plans for the portal user's broker (`GET /v1/account-plans/active`).
+  Future<List<Map<String, dynamic>>> fetchAccountPlans() async {
+    if (!hasUserPortal) return const [];
+    final data = await _request(
+      'GET',
+      '/v1/account-plans/active',
+      auth: false,
+      userAuth: true,
+    );
+    final raw = data['data'];
+    if (raw is! List) return const [];
+    return [
+      for (final row in raw)
+        if (row is Map) Map<String, dynamic>.from(row),
+    ];
+  }
+
+  /// Create live/demo trading account under email portal user.
+  Future<Map<String, dynamic>> createPortalAccount({
+    required String accountPlanId,
+    required String accountType,
+    double? openingBalance,
+    int? leverage,
+    String? tradePassword,
+    String? watchPassword,
+  }) async {
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    if (accountPlanId.trim().isEmpty) {
+      throw ApiException('Invalid plan — please reselect');
+    }
+    final body = <String, dynamic>{
+      'account_plan_id': accountPlanId.trim(),
+      'account_type': accountType,
+    };
+    if (openingBalance != null) body['opening_balance'] = openingBalance;
+    if (leverage != null) body['leverage'] = leverage;
+    if (tradePassword != null && tradePassword.isNotEmpty) {
+      body['trade_password'] = tradePassword;
+    }
+    if (watchPassword != null && watchPassword.isNotEmpty) {
+      body['watch_password'] = watchPassword;
+    }
+    final data = await _request(
+      'POST',
+      '/v1/accounts',
+      auth: false,
+      userAuth: true,
+      body: body,
+    );
+    final created = data['data'];
+    final map = created is Map
+        ? Map<String, dynamic>.from(created)
+        : <String, dynamic>{};
+    try {
+      await refreshLinkedAccounts();
+    } catch (_) {}
+    if (map.isEmpty) {
+      throw ApiException('Account created but response was empty');
+    }
+    return map;
+  }
+
+  /// Cached portal profile for verify % + settings.
+  Map<String, dynamic>? userProfile;
+  Map<String, dynamic>? myKyc;
+
+  /// `GET /v1/user/me`
+  Future<Map<String, dynamic>> fetchUserProfile({bool force = false}) async {
+    if (!hasUserPortal) throw ApiException('Sign in with email first');
+    if (!force && userProfile != null) return userProfile!;
+    final res = await _request(
+      'GET',
+      '/v1/user/me',
+      auth: false,
+      userAuth: true,
+    );
+    final data = res['data'];
+    userProfile = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    notifyListeners();
+    return userProfile!;
+  }
+
+  /// `PUT /v1/user/me`
+  Future<Map<String, dynamic>> updateUserProfile(
+    Map<String, dynamic> body,
+  ) async {
+    if (!hasUserPortal) throw ApiException('Sign in with email first');
+    final res = await _request(
+      'PUT',
+      '/v1/user/me',
+      auth: false,
+      userAuth: true,
+      body: body,
+    );
+    final data = res['data'];
+    if (data is Map) {
+      userProfile = Map<String, dynamic>.from(data);
+    } else {
+      await fetchUserProfile(force: true);
+    }
+    notifyListeners();
+    return userProfile ?? <String, dynamic>{};
+  }
+
+  /// `GET /v1/kyc/me`
+  Future<Map<String, dynamic>> fetchMyKyc({bool force = false}) async {
+    if (!hasUserPortal) throw ApiException('Sign in with email first');
+    if (!force && myKyc != null) return myKyc!;
+    final res = await _request(
+      'GET',
+      '/v1/kyc/me',
+      auth: false,
+      userAuth: true,
+    );
+    final data = res['data'];
+    myKyc = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{'status': 'NOT_STARTED'};
+    notifyListeners();
+    return myKyc!;
+  }
+
+  /// Upload KYC image to Cloudinary (unsigned preset), then `POST /v1/kyc`.
+  Future<({String imageUrl, String publicId})> uploadKycImage(
+    String filePath, {
+    String folder = 'kyc',
+  }) async {
+    const cloud = 'ds1mkqecg';
+    const preset = 'Trading';
+    final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloud/image/upload');
+    final req = http.MultipartRequest('POST', uri)
+      ..fields['upload_preset'] = preset
+      ..fields['folder'] = folder
+      ..files.add(await http.MultipartFile.fromPath('file', filePath));
+    final streamed = await req.send().timeout(const Duration(seconds: 40));
+    final body = await streamed.stream.bytesToString();
+    Map<String, dynamic> data = {};
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) data = decoded;
+    } catch (_) {}
+    if (streamed.statusCode >= 400) {
+      final err = data['error'];
+      final msg = err is Map
+          ? '${err['message'] ?? ''}'
+          : '${data['message'] ?? ''}';
+      throw ApiException(msg.trim().isEmpty ? 'Image upload failed' : msg);
+    }
+    final url = '${data['secure_url'] ?? ''}';
+    final id = '${data['public_id'] ?? ''}';
+    if (url.isEmpty || id.isEmpty) {
+      throw ApiException('Image upload failed');
+    }
+    return (imageUrl: url, publicId: id);
+  }
+
+  /// Support ticket (`POST /v1/inquiry`) — public create like Trade-Portal.
+  Future<void> createSupportInquiry({
+    required String name,
+    required String email,
+    required String phone,
+    required String title,
+    required String description,
+  }) async {
+    await _request(
+      'POST',
+      '/v1/inquiry',
+      auth: false,
+      userAuth: false,
+      body: {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'title': title,
+        'description': description,
+      },
+    );
+  }
+
+  /// `POST /v1/kyc`
+  Future<Map<String, dynamic>> submitKyc({
+    required String documentType,
+    required Map<String, dynamic> front,
+    required Map<String, dynamic> selfie,
+    Map<String, dynamic>? back,
+  }) async {
+    if (!hasUserPortal) throw ApiException('Sign in with email first');
+    final res = await _request(
+      'POST',
+      '/v1/kyc',
+      auth: false,
+      userAuth: true,
+      body: {
+        'documentType': documentType,
+        'documents': {
+          'front': front,
+          'back': back ??
+              {'image_url': '', 'image_public_id': ''},
+          'selfie': selfie,
+        },
+      },
+    );
+    final data = res['data'];
+    myKyc = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{'status': 'PENDING'};
+    await fetchUserProfile(force: true);
+    notifyListeners();
+    return myKyc!;
+  }
+
+  /// Portal wallet/ledger history (`GET /v1/transactions`).
+  Future<({List<Map<String, dynamic>> data, int page, int totalPages, int total})>
+      fetchTransactions({
+    int page = 1,
+    int limit = 50,
+    String? type,
+    String? fromDate,
+    String? toDate,
+    String? accountId,
+  }) async {
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    final query = <String, String>{
+      'page': '$page',
+      'limit': '$limit',
+      if (type != null && type.isNotEmpty) 'type': type,
+      if (fromDate != null && fromDate.isNotEmpty) 'fromDate': fromDate,
+      if (toDate != null && toDate.isNotEmpty) 'toDate': toDate,
+      if (accountId != null && accountId.isNotEmpty) 'accountId': accountId,
+    };
+    final res = await _request(
+      'GET',
+      '/v1/transactions',
+      auth: false,
+      userAuth: true,
+      query: query,
+    );
+    final raw = res['data'];
+    final list = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final row in raw) {
+        if (row is Map) list.add(Map<String, dynamic>.from(row));
+      }
+    }
+    final pagination = res['pagination'];
+    final p = pagination is Map ? pagination : const {};
+    return (
+      data: list,
+      page: (p['page'] as num?)?.toInt() ?? page,
+      totalPages: (p['totalPages'] as num?)?.toInt() ?? 1,
+      total: (p['total'] as num?)?.toInt() ?? list.length,
+    );
+  }
+
+  /// Live → Live internal fund transfer (`POST /v1/internal-transfer`).
+  Future<Map<String, dynamic>> createInternalTransfer({
+    required String fromAccountId,
+    required String toAccountId,
+    required double amount,
+  }) async {
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    final data = await _request(
+      'POST',
+      '/v1/internal-transfer',
+      auth: false,
+      userAuth: true,
+      body: {
+        'fromAccount': fromAccountId,
+        'toAccount': toAccountId,
+        'amount': amount,
+      },
+    );
+    await refreshLinkedAccounts();
+    final sessionNum = session?.accountNumber.trim() ?? '';
+    if (sessionNum.isNotEmpty) {
+      try {
+        await refreshAccount();
+      } catch (_) {}
+    }
+    return data;
+  }
+
+  /// Owned trading accounts for the email user (user JWT).
+  Future<List<LinkedTradingAccount>> refreshLinkedAccounts() async {
+    if (!hasUserPortal) {
+      linkedAccounts = const [];
+      notifyListeners();
+      return linkedAccounts;
+    }
+    final data = await _request(
+      'GET',
+      '/v1/accounts',
+      auth: false,
+      userAuth: true,
+    );
+    final raw = data['data'];
+    final list = <LinkedTradingAccount>[];
+    if (raw is List) {
+      for (final row in raw) {
+        if (row is Map) {
+          list.add(
+            LinkedTradingAccount.fromJson(Map<String, dynamic>.from(row)),
+          );
+        }
+      }
+    }
+    linkedAccounts = list;
+    notifyListeners();
+    return list;
+  }
+
+  /// Mint TRADE session for an owned account (email user JWT).
+  Future<void> activateLinkedAccount(
+    String accountId, {
+    String? tradePassword,
+  }) async {
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    final data = await _request(
+      'POST',
+      '/v1/account-auth/activate',
+      auth: false,
+      userAuth: true,
+      body: {
+        'accountId': accountId,
+        if (tradePassword != null && tradePassword.isNotEmpty)
+          'tradePassword': tradePassword,
+      },
+    );
+    final payload = data['data'] is Map
+        ? Map<String, dynamic>.from(data['data'] as Map)
+        : data;
+    await _startSession(
+      payload,
+      source: 'server',
+      fallbackNumber: '${payload['account_number'] ?? ''}',
+    );
+    await _rememberFp(password: '', touch: true);
+    await setActiveSource('server');
+  }
+
+  /// Open the user's primary trading account (no picker).
+  Future<void> activatePrimaryAccount({String? tradePassword}) async {
+    if (!hasUserPortal) {
+      throw ApiException('Sign in with email first');
+    }
+    try {
+      final data = await _request(
+        'POST',
+        '/v1/account-auth/activate-primary',
+        auth: false,
+        userAuth: true,
+        body: {
+          if (tradePassword != null && tradePassword.isNotEmpty)
+            'tradePassword': tradePassword,
+        },
+      );
+      final payload = data['data'] is Map
+          ? Map<String, dynamic>.from(data['data'] as Map)
+          : data;
+      await _startSession(
+        payload,
+        source: 'server',
+        fallbackNumber: '${payload['account_number'] ?? ''}',
+      );
+      await _rememberFp(password: '', touch: true);
+      await setActiveSource('server');
+      return;
+    } catch (_) {
+      // Fallback: pick from linked list if endpoint unavailable.
+    }
+    if (linkedAccounts.isEmpty) {
+      await refreshLinkedAccounts();
+    }
+    if (linkedAccounts.isEmpty) {
+      throw ApiException('No trading account found');
+    }
+    final primary = linkedAccounts.firstWhere(
+      (a) => a.isPrimary,
+      orElse: () {
+        final live = linkedAccounts.where((a) => a.isLive);
+        if (live.isNotEmpty) return live.first;
+        return linkedAccounts.first;
+      },
+    );
+    await activateLinkedAccount(primary.id, tradePassword: tradePassword);
+  }
+
+  Future<void> switchLinkedAccount(String accountId) =>
+      activateLinkedAccount(accountId);
 
   /// FP Trades account login (account-auth).
   Future<void> login(
@@ -937,6 +1661,9 @@ class TradingService extends ChangeNotifier {
     await prefs.remove('session');
     if (byUser) {
       loggedOutByUser = true;
+      userPortal = null;
+      linkedAccounts = const [];
+      await prefs.remove(_userPortalKey);
       if (wasMq || activeSource == 'mq') {
         mqAccount = null;
         await prefs.remove('mq_active_account');
@@ -1139,6 +1866,7 @@ class TradingService extends ChangeNotifier {
     Map<String, dynamic>? body,
     Map<String, String>? query,
     bool auth = true,
+    bool userAuth = false,
     bool retried = false,
   }) async {
     final uri = Uri.parse(
@@ -1151,7 +1879,12 @@ class TradingService extends ChangeNotifier {
     try {
       final req = await client.openUrl(method, uri);
       req.headers.contentType = ContentType.json;
-      if (auth && session != null) {
+      if (userAuth && hasUserPortal) {
+        req.headers.set(
+          'Authorization',
+          'Bearer ${userPortal!.accessToken}',
+        );
+      } else if (auth && session != null) {
         req.headers.set('Authorization', 'Bearer ${session!.token}');
       }
       if (body != null) req.write(jsonEncode(body));
@@ -1179,15 +1912,24 @@ class TradingService extends ChangeNotifier {
               body: body,
               query: query,
               auth: auth,
+              userAuth: userAuth,
               retried: true,
             );
           }
           await logout(byUser: false);
           throw ApiException('Session expired. Please login again');
         }
-        throw ApiException(
-          data['message'] as String? ?? 'Request failed (${resp.statusCode})',
-        );
+        final msg = data['message'] as String?;
+        final detail = data['error'] as String?;
+        // Prefer specific backend error when generic "Internal server error".
+        final shown = (msg == null ||
+                msg.isEmpty ||
+                (msg == 'Internal server error' &&
+                    detail != null &&
+                    detail.isNotEmpty))
+            ? (detail ?? msg ?? 'Request failed (${resp.statusCode})')
+            : msg;
+        throw ApiException(shown);
       }
       return data;
     } on SocketException {
@@ -1619,16 +2361,19 @@ class TradingService extends ChangeNotifier {
     unawaited(_connect());
   }
 
-  /// Max ~6 updates/sec to the UI, no matter how fast ticks arrive.
+  /// Max ~6–7 updates/sec to the UI, no matter how fast ticks arrive.
+  /// Lower = snappier prices; higher = less rebuild pressure.
+  static const _tickUiMs = 160;
+
   void _notifyTick() {
     final now = DateTime.now();
     final last = _lastTickNotify;
-    if (last == null || now.difference(last).inMilliseconds >= 160) {
+    if (last == null || now.difference(last).inMilliseconds >= _tickUiMs) {
       _lastTickNotify = now;
       notifyListeners();
       return;
     }
-    _tickTimer ??= Timer(const Duration(milliseconds: 160), () {
+    _tickTimer ??= Timer(const Duration(milliseconds: _tickUiMs), () {
       _tickTimer = null;
       _lastTickNotify = DateTime.now();
       notifyListeners();
@@ -1804,7 +2549,7 @@ class TradingService extends ChangeNotifier {
           final seg = '${data['segment'] ?? ''}'.trim().toLowerCase();
           if (seg.isNotEmpty) {
             marketOpenBySegment[seg] = data['isMarketOpen'] == true;
-            notifyListeners();
+            _notifyTick();
           }
         }
         return;
@@ -1856,9 +2601,8 @@ class TradingService extends ChangeNotifier {
           positions[e.key] = p.copyWith(currentPrice: mark);
           posChanged = true;
         }
-        if (posChanged) {
-          notifyListeners();
-        } else {
+        // Always throttle — unthrottled notify was freezing the UI.
+        if (posChanged || targets.isNotEmpty) {
           _notifyTick();
         }
         return;

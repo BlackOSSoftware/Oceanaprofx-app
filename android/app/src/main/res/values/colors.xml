@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0092E9</color>
-    <!-- White screen; icon itself is blue rounded square like MT5. -->
+    <color name="ic_launcher_background">#001529</color>
+    <!-- White splash; Oceana brand mark centered. -->
     <color name="splash_background">#FFFFFF</color>
 </resources>

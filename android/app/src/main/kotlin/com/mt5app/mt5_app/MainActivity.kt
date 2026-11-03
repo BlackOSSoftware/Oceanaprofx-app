@@ -1,5 +1,7 @@
 package com.mt5app.mt5_app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -51,7 +53,25 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        ensurePushChannel()
         applySystemBars()
+    }
+
+    /** Must match backend FCM android.notification.channelId */
+    private fun ensurePushChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val mgr = getSystemService(NotificationManager::class.java) ?: return
+        val id = "oceana_default"
+        if (mgr.getNotificationChannel(id) != null) return
+        val ch = NotificationChannel(
+            id,
+            "Oceana Alerts",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Trading and account notifications"
+            enableVibration(true)
+        }
+        mgr.createNotificationChannel(ch)
     }
 
     override fun onResume() {
