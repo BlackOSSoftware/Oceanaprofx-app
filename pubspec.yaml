@@ -80,53 +80,10 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/brand/oceana_logo.png
-    - assets/metaLogo.png
-    - assets/icons/trade_candles.png
-    - assets/icons/order_done.png
-    - assets/icons/quotes_arrows.png
-    - assets/icons/messages_bubbles.png
-    - assets/icons/header_edit.png
+    - assets/brand/oceana_logo_v3.png
+    - assets/brand/oceana_mark_v3.png
+    - assets/brand/oceana_launcher.png
     - assets/icons/quote_mark.png
-    - assets/icons/sidebar_default.png
-    - assets/icons/news_paper.png
-    - assets/icons/journal_book.png
-    - assets/icons/settings_gear.png
-    - assets/icons/traders_community.png
-    - assets/icons/mql5_plane.png
-    - assets/icons/about_info.png
-    - assets/icons/profile_add.png
-    - assets/icons/trade_line.png
-    - assets/icons/mt5_logo.png
-    - assets/icons/qr_code.png
-    - assets/icons/demo_cap.png
-    - assets/icons/copy_docs.png
-    - assets/icons/desktop_monitor.png
-    - assets/icons/shield_keyhole.png
-    - assets/icons/medal_badge.png
-    - assets/icons/folder_gold.png
-    - assets/icons/home_gray.png
-    - assets/icons/trash_bin.png
-    - assets/icons/select_all_checks.png
-    - assets/icons/drag_bars.png
-    - assets/icons/period_today.png
-    - assets/icons/period_week.png
-    - assets/icons/period_month.png
-    - assets/icons/period_3months.png
-    - assets/icons/period_custom.png
-    - assets/icons/chart_crosshair.png
-    - assets/icons/chart_move.png
-    - assets/icons/chart_indicators.png
-    - assets/icons/chart_trade.png
-    - assets/icons/chart_one_click.png
-    - assets/icons/chart_sliders.png
-    - assets/icons/chart_objects.png
-    - assets/icons/chart_windows.png
-    - assets/icons/property_search.png
-    - assets/icons/brokers/fptrades.png
-    - assets/icons/brokers/oceana.png
-    - assets/sounds/success.mp3
-    - assets/sounds/error.mp3
 
   fonts:
     - family: Roboto

@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,18 +15,33 @@ import '../charts/oceana_timeframe_sheet.dart';
 import '../charts/trading_view_chart.dart';
 import '../quotes/symbol_flags.dart';
 
-/// Close / Modify Position — Tenax SS layout, Oceana brand `#1414C7`.
+enum OceanaPositionPageMode { close, modify }
+
+/// Close or Modify Position — Tenax SS layout, Oceana brand `#1414C7`.
 class OceanaCloseModifyPage extends StatefulWidget {
-  const OceanaCloseModifyPage({super.key, required this.position});
+  const OceanaCloseModifyPage({
+    super.key,
+    required this.position,
+    this.mode = OceanaPositionPageMode.close,
+  });
 
   final LivePosition position;
+  final OceanaPositionPageMode mode;
 
-  static Future<void> open(BuildContext context, LivePosition position) {
+  static Future<void> open(
+    BuildContext context,
+    LivePosition position, {
+    OceanaPositionPageMode mode = OceanaPositionPageMode.close,
+  }) {
     return Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => OceanaCloseModifyPage(position: position),
+        builder: (_) => OceanaCloseModifyPage(position: position, mode: mode),
       ),
     );
+  }
+
+  static Future<void> openModify(BuildContext context, LivePosition position) {
+    return open(context, position, mode: OceanaPositionPageMode.modify);
   }
 
   @override
@@ -37,8 +52,8 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
   static const _cardR = 12.0;
   static const _gap = 12.0;
   static Color get _pageBg => OcColors.bg;
-  static const _cardBg = Color(0xFFF5F5F7);
-  static const _cardLine = Color(0xFFE6E6EA);
+  static Color get _cardBg => OcColors.surface;
+  static Color get _cardLine => OcColors.border;
   static const _lotStep = 0.01;
 
   late final String _positionId = widget.position.positionId;
@@ -87,6 +102,8 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
 
   LivePosition get _pos =>
       tradingService.positions[_positionId] ?? widget.position;
+
+  bool get _isModify => widget.mode == OceanaPositionPageMode.modify;
 
   String get _symbol => _pos.symbol;
 
@@ -220,9 +237,41 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
     setState(() => _busy = true);
     HapticFeedback.lightImpact();
     try {
-      await _saveSlTpIfNeeded();
       await tradingService.closePosition(_positionId);
       if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _submitModify() async {
+    _unfocus();
+    if (_tpOn && (double.tryParse(_tpCtrl.text.trim()) ?? 0) <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid Take Profit price')),
+      );
+      return;
+    }
+    if (_slOn && (double.tryParse(_slCtrl.text.trim()) ?? 0) <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid Stop Loss price')),
+      );
+      return;
+    }
+    setState(() => _busy = true);
+    HapticFeedback.lightImpact();
+    try {
+      await _saveSlTpIfNeeded();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Position modified')),
+      );
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
@@ -259,42 +308,58 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
                     SizedBox(height: 8),
                     _chartBlock(),
                   ],
-                  SizedBox(height: 16),
-                  Text(
-                    'Close Partially',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: OcColors.text,
+                  if (_isModify) ...[
+                    SizedBox(height: 16),
+                    Text(
+                      'Set Target (T/P) & Stop Loss',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: OcColors.text,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  _switchCard(
-                    label: 'Partial Close',
-                    value: _partial,
-                    onChanged: (v) {
-                      _unfocus();
-                      setState(() {
-                        _partial = v;
-                        if (!v) {
-                          _volCents = _maxCents;
-                          _volumeCtrl.text = _volume.toStringAsFixed(2);
-                        }
-                      });
-                    },
-                  ),
-                  if (_partial) ...[
                     const SizedBox(height: 8),
-                    _volumeStepper(),
+                    _tpSlCard(),
+                    const SizedBox(height: _gap),
+                    _modifySummaryCard(),
+                    const SizedBox(height: 14),
+                    _modifyButton(),
+                  ] else ...[
+                    SizedBox(height: 16),
+                    Text(
+                      'Close Partially',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: OcColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _switchCard(
+                      label: 'Partial Close',
+                      value: _partial,
+                      onChanged: (v) {
+                        _unfocus();
+                        setState(() {
+                          _partial = v;
+                          if (!v) {
+                            _volCents = _maxCents;
+                            _volumeCtrl.text = _volume.toStringAsFixed(2);
+                          }
+                        });
+                      },
+                    ),
+                    if (_partial) ...[
+                      const SizedBox(height: 8),
+                      _volumeStepper(),
+                    ],
+                    const SizedBox(height: 8),
+                    _selectedBanner(),
+                    const SizedBox(height: _gap),
+                    _pnlCard(pnl, profit),
+                    const SizedBox(height: 14),
+                    _closeButton(pnl, profit),
                   ],
-                  const SizedBox(height: 8),
-                  _selectedBanner(),
-                  const SizedBox(height: _gap),
-                  _tpSlCard(),
-                  const SizedBox(height: _gap),
-                  _pnlCard(pnl, profit),
-                  const SizedBox(height: 14),
-                  _closeButton(pnl, profit),
                 ],
               ),
             ),
@@ -330,7 +395,7 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Close / Modify Position',
+                  _isModify ? 'Modify Position' : 'Close Position',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -448,8 +513,8 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
                     },
                   );
                 },
-                child: const Padding(
-                  padding: EdgeInsets.all(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
                   child: Text(
                     'fx Indicators',
                     style: TextStyle(
@@ -523,50 +588,125 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
   }
 
   Widget _volumeStepper() {
+    return _stepperField(
+      controller: _volumeCtrl,
+      focusNode: _volumeFocus,
+      onMinus: () => _bumpVolume(-_lotStep),
+      onPlus: () => _bumpVolume(_lotStep),
+      onChanged: (_) {},
+      onEditDone: _syncVolumeFromField,
+      formatters: [_qtyFormat],
+      keyboard: const TextInputType.numberWithOptions(decimal: true),
+    );
+  }
+
+  void _bumpPrice({
+    required TextEditingController ctrl,
+    required double dir,
+    required ValueChanged<double?> onSet,
+  }) {
+    _unfocus();
+    final cur = double.tryParse(ctrl.text.trim()) ??
+        (_pos.currentPrice > 0 ? _pos.currentPrice : _pos.openPrice);
+    final next = _round(cur + dir * _priceStep);
+    ctrl.text = next.toStringAsFixed(_digits);
+    onSet(next);
+    setState(() {});
+  }
+
+  /// Matches Pending Order — kills theme OutlineInputBorder/fill (no double box).
+  Widget _stepperField({
+    required TextEditingController controller,
+    required VoidCallback onMinus,
+    required VoidCallback onPlus,
+    required ValueChanged<String> onChanged,
+    FocusNode? focusNode,
+    VoidCallback? onEditDone,
+    List<TextInputFormatter>? formatters,
+    TextInputType? keyboard,
+  }) {
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: _cardBg,
+        color: OcColors.surface,
         borderRadius: BorderRadius.circular(_cardR),
         border: Border.all(color: _cardLine),
       ),
       child: Row(
         children: [
-          _stepBtn(Icons.remove, () => _bumpVolume(-_lotStep)),
+          _circleBtn(icon: OcIcons.minus, onTap: onMinus),
           Expanded(
-            child: TextField(
-              controller: _volumeCtrl,
-              focusNode: _volumeFocus,
-              textAlign: TextAlign.center,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [_qtyFormat],
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                inputDecorationTheme: const InputDecorationTheme(
+                  filled: false,
+                  fillColor: Colors.transparent,
+                  hoverColor: Colors.transparent,
+                  focusColor: Colors.transparent,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                  isDense: true,
+                ),
               ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                onChanged: onChanged,
+                onEditingComplete: () {
+                  onEditDone?.call();
+                  focusNode?.unfocus();
+                },
+                textAlign: TextAlign.center,
+                cursorColor: OcColors.primary,
+                keyboardType: keyboard,
+                inputFormatters: formatters,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: OcColors.text,
+                  height: 1.15,
+                ),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  filled: false,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
-              onEditingComplete: _syncVolumeFromField,
             ),
           ),
-          _stepBtn(Icons.add, () => _bumpVolume(_lotStep)),
+          _circleBtn(icon: OcIcons.plus, onTap: onPlus),
         ],
       ),
     );
   }
 
-  Widget _stepBtn(IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        width: 48,
-        height: 48,
-        child: Icon(icon, size: 20, color: OcColors.textSecondary),
+  Widget _circleBtn({required IconData icon, required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: OcColors.primary, width: 1.35),
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 15, color: OcColors.primary),
+        ),
       ),
     );
   }
@@ -582,7 +722,7 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
       ),
       child: Text(
         'Selected: ${_volume.toStringAsFixed(2)} lots (${_closePct.toStringAsFixed(1)}%)',
-        style: const TextStyle(
+        style: TextStyle(
           color: OcColors.primary,
           fontWeight: FontWeight.w700,
           fontSize: 13.5,
@@ -593,19 +733,18 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
 
   Widget _tpSlCard() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
+      padding: const EdgeInsets.fromLTRB(12, 2, 6, 10),
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(_cardR),
         border: Border.all(color: _cardLine),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _tpSlRow(
+          _tpSlToggle(
             label: 'Take Profit',
             on: _tpOn,
-            ctrl: _tpCtrl,
-            focus: _tpFocus,
             onToggle: (v) {
               _unfocus();
               setState(() {
@@ -627,16 +766,34 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
               });
             },
           ),
-          if (_tpOn) _priceField(_tpCtrl, _tpFocus, (v) {
-            final p = double.tryParse(v.trim());
-            _tp = (p != null && p > 0) ? p : null;
-          }),
-          const Divider(height: 8, thickness: 0.7, color: _cardLine),
-          _tpSlRow(
+          if (_tpOn) ...[
+            _stepperField(
+              controller: _tpCtrl,
+              focusNode: _tpFocus,
+              onMinus: () => _bumpPrice(
+                ctrl: _tpCtrl,
+                dir: -1,
+                onSet: (v) => _tp = v,
+              ),
+              onPlus: () => _bumpPrice(
+                ctrl: _tpCtrl,
+                dir: 1,
+                onSet: (v) => _tp = v,
+              ),
+              onChanged: (v) {
+                final p = double.tryParse(v.trim());
+                _tp = (p != null && p > 0) ? p : null;
+              },
+              onEditDone: () => setState(() {}),
+              formatters: [_priceFormat],
+              keyboard: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 6),
+          ],
+          Divider(height: 10, thickness: 0.7, color: _cardLine),
+          _tpSlToggle(
             label: 'Stop Loss',
             on: _slOn,
-            ctrl: _slCtrl,
-            focus: _slFocus,
             onToggle: (v) {
               _unfocus();
               setState(() {
@@ -658,77 +815,63 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
               });
             },
           ),
-          if (_slOn) _priceField(_slCtrl, _slFocus, (v) {
-            final p = double.tryParse(v.trim());
-            _sl = (p != null && p > 0) ? p : null;
-          }),
+          if (_slOn) ...[
+            _stepperField(
+              controller: _slCtrl,
+              focusNode: _slFocus,
+              onMinus: () => _bumpPrice(
+                ctrl: _slCtrl,
+                dir: -1,
+                onSet: (v) => _sl = v,
+              ),
+              onPlus: () => _bumpPrice(
+                ctrl: _slCtrl,
+                dir: 1,
+                onSet: (v) => _sl = v,
+              ),
+              onChanged: (v) {
+                final p = double.tryParse(v.trim());
+                _sl = (p != null && p > 0) ? p : null;
+              },
+              onEditDone: () => setState(() {}),
+              formatters: [_priceFormat],
+              keyboard: const TextInputType.numberWithOptions(decimal: true),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _tpSlRow({
+  Widget _tpSlToggle({
     required String label,
     required bool on,
-    required TextEditingController ctrl,
-    required FocusNode focus,
     required ValueChanged<bool> onToggle,
   }) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13.5,
-              color: OcColors.text,
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13.5,
+                color: OcColors.text,
+              ),
             ),
           ),
-        ),
-        Transform.scale(
-          scale: 0.85,
-          child: Switch.adaptive(
-            value: on,
-            activeThumbColor: Colors.white,
-            activeTrackColor: OcColors.primary,
-            onChanged: onToggle,
+          Transform.scale(
+            scale: 0.85,
+            child: Switch.adaptive(
+              value: on,
+              activeThumbColor: Colors.white,
+              activeTrackColor: OcColors.primary,
+              onChanged: onToggle,
+            ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _priceField(
-    TextEditingController ctrl,
-    FocusNode focus,
-    ValueChanged<String> onChanged,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, bottom: 8),
-      child: Container(
-        height: 42,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: OcColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: _cardLine),
-        ),
-        child: TextField(
-          controller: ctrl,
-          focusNode: focus,
-          textAlign: TextAlign.center,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [_priceFormat],
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(horizontal: 10),
-          ),
-          onChanged: onChanged,
-          onEditingComplete: () => setState(() {}),
-        ),
+        ],
       ),
     );
   }
@@ -845,6 +988,68 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
       ),
     );
   }
+
+  Widget _modifySummaryCard() {
+    final tpText = !_tpOn
+        ? 'Off'
+        : (_tpCtrl.text.trim().isEmpty ? '—' : _tpCtrl.text.trim());
+    final slText = !_slOn
+        ? 'Off'
+        : (_slCtrl.text.trim().isEmpty ? '—' : _slCtrl.text.trim());
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: OcColors.primarySoft,
+        borderRadius: BorderRadius.circular(_cardR),
+        border: Border.all(color: OcColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Changes to apply',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 13.5,
+              color: OcColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _kv('Take Profit:', tpText, valueColor: OcColors.text, valueBold: true),
+          const SizedBox(height: 3),
+          _kv('Stop Loss:', slText, valueColor: OcColors.text, valueBold: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _modifyButton() {
+    return SizedBox(
+      height: 50,
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: _busy ? null : _submitModify,
+        style: FilledButton.styleFrom(
+          backgroundColor: OcColors.primary,
+          disabledBackgroundColor: OcColors.primary.withValues(alpha: 0.4),
+          foregroundColor: Colors.white,
+          elevation: 2,
+          shadowColor: OcColors.primary.withValues(alpha: 0.35),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: Text(
+          _busy ? 'Saving…' : 'Modify Position',
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _LiveBidAskCard extends StatefulWidget {
@@ -935,7 +1140,7 @@ class _LiveBidAskCardState extends State<_LiveBidAskCard> {
           side(
             'Ask',
             ask > 0 ? ask.toStringAsFixed(digits) : '—',
-            OcColors.text,
+            OcColors.ask,
           ),
         ],
       ),

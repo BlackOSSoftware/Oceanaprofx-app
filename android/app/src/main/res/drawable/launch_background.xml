@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Centered full-bleed logo; corners round OS splash mask se. -->
+<!-- Black splash + full Oceana wordmark (wide box, no side crop). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+    <item android:drawable="@android:color/black" />
     <item
-        android:width="280dp"
-        android:height="280dp"
+        android:width="360dp"
+        android:height="96dp"
         android:gravity="center">
         <bitmap
             android:gravity="fill"

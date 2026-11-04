@@ -1,3 +1,5 @@
+import '../../core/trading_service.dart';
+
 class Quote {
   const Quote({
     required this.symbol,
@@ -194,4 +196,89 @@ Quote? quoteBySymbol(String symbol) {
     if (quote.symbol == symbol) return quote;
   }
   return null;
+}
+
+String _fmt(double v, int digits) => v.toStringAsFixed(digits);
+
+(String, String) _split(double v, int digits) {
+  final s = _fmt(v, digits);
+  if (s.length <= 1) return (s, '');
+  return (s.substring(0, s.length - 1), s.substring(s.length - 1));
+}
+
+String _timeStr(DateTime? t) {
+  if (t == null) return '--:--:--';
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+}
+
+/// Live WS prices when available, static fallback otherwise.
+Quote displayQuoteFor(String symbol) {
+  final fallback = quoteBySymbol(symbol);
+  final live = tradingService.quoteFor(symbol);
+  final inactive = tradingService.isQuoteInactive(symbol);
+  if (live != null && !live.hasPrice) {
+    final seed = live.dayClose > 0
+        ? live.dayClose
+        : (live.dayOpen > 0 ? live.dayOpen : 0.0);
+    if (seed > 0) {
+      live.bid = seed;
+      live.ask = seed;
+      live.prevBid = seed;
+    }
+  }
+  if (live == null || !live.hasPrice) {
+    final base = fallback ??
+        Quote(
+          symbol: symbol,
+          change: '0 0.00%',
+          changeUp: true,
+          time: '--:--:--',
+          spread: '0',
+          bidHead: '0.00',
+          bidTail: '0',
+          askHead: '0.00',
+          askTail: '0',
+          low: '0',
+          high: '0',
+          priceUp: true,
+          digits: 5,
+          inactive: true,
+        );
+    return Quote(
+      symbol: base.symbol,
+      change: base.change,
+      changeUp: base.changeUp,
+      time: base.time,
+      spread: base.spread,
+      bidHead: base.bidHead,
+      bidTail: base.bidTail,
+      askHead: base.askHead,
+      askTail: base.askTail,
+      low: base.low,
+      high: base.high,
+      priceUp: base.priceUp,
+      digits: base.digits,
+      inactive: true,
+    );
+  }
+  final d = live.digits;
+  final (bidHead, bidTail) = _split(live.bid, d);
+  final (askHead, askTail) = _split(live.ask, d);
+  return Quote(
+    symbol: symbol,
+    change: live.changeLabel,
+    changeUp: live.changeUp,
+    time: _timeStr(live.time),
+    spread: '${live.spreadPoints}',
+    bidHead: bidHead,
+    bidTail: bidTail,
+    askHead: askHead,
+    askTail: askTail,
+    low: _fmt(live.dayLow > 0 ? live.dayLow : live.bid, d),
+    high: _fmt(live.dayHigh > 0 ? live.dayHigh : live.bid, d),
+    priceUp: live.priceUp,
+    digits: d,
+    inactive: inactive,
+  );
 }

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
@@ -187,12 +187,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               IconButton(
                 tooltip: 'Transfer',
                 onPressed: () => OceanaInternalTransferPage.open(context),
-                icon: const Icon(OcIcons.wallet, color: OcColors.primary),
+                icon: Icon(OcIcons.wallet, color: OcColors.primary),
               ),
               IconButton(
                 tooltip: 'Open Account',
                 onPressed: () => _showOpenAccountSheet(context),
-                icon: const Icon(OcIcons.plusSquare, color: OcColors.primary),
+                icon: Icon(OcIcons.plusSquare, color: OcColors.primary),
               ),
             ],
           ),
@@ -1039,7 +1039,7 @@ class _AccountCard extends StatelessWidget {
                 ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: OcColors.primary,
-                  side: const BorderSide(color: OcColors.primary, width: 1.1),
+                  side: BorderSide(color: OcColors.primary, width: 1.1),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),

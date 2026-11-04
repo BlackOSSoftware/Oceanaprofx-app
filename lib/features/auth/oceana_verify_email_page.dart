@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
@@ -85,7 +85,9 @@ class _OceanaVerifyEmailPageState extends State<OceanaVerifyEmailPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(child: OcBrandMark(size: 64)),
+              const Center(
+                child: OcBrandMark(height: 80, maxWidth: 240),
+              ),
               SizedBox(height: 24),
               Text(
                 'Verify your email',
@@ -183,7 +185,7 @@ class _OceanaVerifyEmailPageState extends State<OceanaVerifyEmailPage> {
                           setState(() => _sent = false);
                           _send();
                         },
-                  child: const Text(
+                  child: Text(
                     'Resend email',
                     style: TextStyle(
                       color: OcColors.primary,

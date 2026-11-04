@@ -108,7 +108,7 @@ Future<String?> showOceanaChartStyleSheet(
                           ),
                         ),
                         trailing: selected == opt.code
-                            ? const Icon(
+                            ? Icon(
                                 OcIcons.checkCircle2,
                                 size: 18,
                                 color: OcColors.primary,

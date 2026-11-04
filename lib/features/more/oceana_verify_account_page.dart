@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/trading_service.dart';
@@ -294,7 +294,7 @@ class _OceanaVerifyAccountPageState extends State<OceanaVerifyAccountPage> {
                         onPressed: _openKyc,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: OcColors.primary,
-                          side: const BorderSide(color: OcColors.primary),
+                          side: BorderSide(color: OcColors.primary),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -330,8 +330,8 @@ class _OceanaVerifyAccountPageState extends State<OceanaVerifyAccountPage> {
         fg = OcColors.depositFg;
         icon = OcIcons.check;
       case _StepState.pending:
-        bg = const Color(0xFFFFF3CD);
-        fg = const Color(0xFFB78103);
+        bg = OcColors.warnBg;
+        fg = OcColors.warnFg;
         icon = OcIcons.history;
       case _StepState.rejected:
         bg = OcColors.withdrawBg;

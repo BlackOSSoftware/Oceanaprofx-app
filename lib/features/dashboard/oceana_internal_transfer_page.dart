@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
@@ -138,7 +138,7 @@ class _OceanaInternalTransferPageState
                       ),
                     ),
                     trailing: selected
-                        ? const Icon(OcIcons.check, color: OcColors.primary)
+                        ? Icon(OcIcons.check, color: OcColors.primary)
                         : null,
                   );
                 },
@@ -475,7 +475,7 @@ class _OceanaInternalTransferPageState
           fontWeight: FontWeight.w700,
           fontSize: 15,
         ),
-        labelStyle: const TextStyle(
+        labelStyle: TextStyle(
           color: OcColors.primary,
           fontWeight: FontWeight.w600,
           fontSize: 12,
@@ -493,7 +493,7 @@ class _OceanaInternalTransferPageState
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_fieldR),
-          borderSide: const BorderSide(color: OcColors.primary, width: 1.4),
+          borderSide: BorderSide(color: OcColors.primary, width: 1.4),
         ),
       ),
     );
@@ -518,7 +518,7 @@ class _OceanaInternalTransferPageState
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_fieldR),
-          borderSide: const BorderSide(color: OcColors.primary, width: 1.4),
+          borderSide: BorderSide(color: OcColors.primary, width: 1.4),
         ),
       ),
     );

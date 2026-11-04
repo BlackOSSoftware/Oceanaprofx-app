@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/trading_service.dart';
@@ -149,8 +149,8 @@ class _OceanaSupportPageState extends State<OceanaSupportPage> {
           const SizedBox(height: 14),
           _contactCard(
             icon: OcIcons.megaphone,
-            iconBg: const Color(0xFFE3F2FD),
-            iconFg: const Color(0xFF1565C0),
+            iconBg: OcColors.primarySoft,
+            iconFg: OcColors.primary,
             title: 'Email Support',
             body: "We'll respond within 24 hours.",
             actionLabel: 'Email us →',
@@ -317,7 +317,7 @@ class _OceanaSupportPageState extends State<OceanaSupportPage> {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 trailing: _issue == i.$1
-                    ? const Icon(OcIcons.check, color: OcColors.primary)
+                    ? Icon(OcIcons.check, color: OcColors.primary)
                     : null,
                 onTap: () => Navigator.pop(ctx, i.$1),
               ),
@@ -380,7 +380,7 @@ class _OceanaSupportPageState extends State<OceanaSupportPage> {
               onTap: onAction,
               child: Text(
                 actionLabel,
-                style: const TextStyle(
+                style: TextStyle(
                   color: OcColors.primary,
                   fontWeight: FontWeight.w700,
                   fontSize: 12,

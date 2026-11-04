@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
@@ -337,7 +337,7 @@ class _ResetLinkSheetState extends State<_ResetLinkSheet> {
         Text(
           widget.email,
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w800,
             fontSize: 13.5,
             color: OcColors.primary,

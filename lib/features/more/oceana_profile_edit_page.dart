@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/trading_service.dart';
@@ -6,7 +6,7 @@ import '../../ui/country_dial_codes.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
 
-/// Edit Profile — clean sections, icons, country-code phone picker.
+/// Edit Profile � clean sections, icons, country-code phone picker.
 class OceanaProfileEditPage extends StatefulWidget {
   const OceanaProfileEditPage({super.key});
 
@@ -341,7 +341,7 @@ class _OceanaProfileEditPageState extends State<OceanaProfileEditPage> {
                               ),
                             ),
                             child: Text(
-                              _busy ? 'Saving…' : 'Save changes',
+                              _busy ? 'Saving�' : 'Save changes',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14,
@@ -416,7 +416,7 @@ class _OceanaProfileEditPageState extends State<OceanaProfileEditPage> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                _metaLine(OcIcons.mail, _email.isEmpty ? '—' : _email),
+                _metaLine(OcIcons.mail, _email.isEmpty ? '�' : _email),
                 const SizedBox(height: 4),
                 Text(
                   'Name & email are managed by your account',
@@ -621,7 +621,7 @@ class _OceanaProfileEditPageState extends State<OceanaProfileEditPage> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: OcColors.primary, width: 1.4),
+          borderSide: BorderSide(color: OcColors.primary, width: 1.4),
         ),
       );
 
@@ -742,7 +742,7 @@ class _CountryCodeSheetState extends State<_CountryCodeSheet> {
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      const BorderSide(color: OcColors.primary, width: 1.3),
+                      BorderSide(color: OcColors.primary, width: 1.3),
                 ),
               ),
             ),

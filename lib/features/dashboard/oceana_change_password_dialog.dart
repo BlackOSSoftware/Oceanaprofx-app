@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
@@ -162,7 +162,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
                 onPressed: _busy ? null : () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: OcColors.primary,
-                  side: const BorderSide(color: OcColors.primary, width: 1.3),
+                  side: BorderSide(color: OcColors.primary, width: 1.3),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -213,7 +213,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: OcColors.primary, width: 1.4),
+          borderSide: BorderSide(color: OcColors.primary, width: 1.4),
         ),
       ),
     );

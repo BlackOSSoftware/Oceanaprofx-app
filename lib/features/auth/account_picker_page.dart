@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/format.dart';
 import '../../core/trading_service.dart';
@@ -6,6 +6,7 @@ import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
 import '../../ui/widgets/oc_badge.dart';
 import '../../ui/widgets/oc_primary_button.dart';
+import 'login_page.dart';
 import 'welcome_page.dart';
 
 /// After email login: pick which trading account to activate.
@@ -217,7 +218,7 @@ class _AccountPickerPageState extends State<AccountPickerPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     else
-                      const Icon(
+                      Icon(
                         OcIcons.chevronRight,
                         color: OcColors.primary,
                       ),
@@ -232,6 +233,22 @@ class _AccountPickerPageState extends State<AccountPickerPage> {
   }
 }
 
+/// Portal display name for Settings / Switch Account (never MT session name).
+String portalDisplayName() {
+  final email = tradingService.userPortal?.email.trim() ?? '';
+  final profileName = '${tradingService.userProfile?['name'] ?? ''}'.trim();
+  if (profileName.isNotEmpty) return profileName;
+  final saved = tradingService.savedPortalLogins
+      .where((a) => a.email == email.trim().toLowerCase())
+      .firstOrNull;
+  if (saved != null && saved.name.trim().isNotEmpty) return saved.name.trim();
+  if (email.isNotEmpty) {
+    final local = email.split('@').first.trim();
+    if (local.isNotEmpty) return local;
+  }
+  return 'User';
+}
+
 /// Settings: switch / add portal email login (not trading accounts).
 Future<void> showSwitchLinkedAccountsSheet(BuildContext context) async {
   if (!tradingService.hasUserPortal) {
@@ -240,17 +257,26 @@ Future<void> showSwitchLinkedAccountsSheet(BuildContext context) async {
     );
     return;
   }
+  try {
+    await tradingService.fetchUserProfile(force: true);
+    final email = tradingService.userPortal?.email.trim() ?? '';
+    final n = '${tradingService.userProfile?['name'] ?? ''}'.trim();
+    // Persist current portal into Switch Account list (also migrates legacy save).
+    final saved = await tradingService.savedEmailLogin();
+    if (email.isNotEmpty &&
+        saved != null &&
+        saved.email == email.trim().toLowerCase() &&
+        saved.password.isNotEmpty) {
+      await tradingService.rememberEmailLogin(
+        email,
+        saved.password,
+        name: n.isNotEmpty ? n : null,
+      );
+    } else if (email.isNotEmpty && n.isNotEmpty) {
+      await tradingService.updateSavedPortalName(email, n);
+    }
+  } catch (_) {}
   if (!context.mounted) return;
-
-  final email = tradingService.userPortal?.email.trim() ?? '';
-  final profileName =
-      '${tradingService.userProfile?['name'] ?? ''}'.trim();
-  final sessionName = tradingService.session?.name.trim() ?? '';
-  final name = profileName.isNotEmpty
-      ? profileName
-      : (sessionName.isNotEmpty
-          ? sessionName
-          : (email.isNotEmpty ? email.split('@').first : 'User'));
 
   await showModalBottomSheet<void>(
     context: context,
@@ -259,74 +285,169 @@ Future<void> showSwitchLinkedAccountsSheet(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          12,
-          16,
-          16 + MediaQuery.paddingOf(ctx).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                const Text(
-                  'Switch Account',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  icon: const Icon(OcIcons.x),
-                ),
-              ],
-            ),
-            _SwitchAccountTile(
-              name: name,
-              email: email,
-              selected: true,
-              onTap: () => Navigator.pop(ctx),
-            ),
-            const SizedBox(height: 8),
-            OcPrimaryButton(
-              label: 'Add New +',
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await tradingService.logout();
-                if (!context.mounted) return;
-                // Push on top of shell (do not remove shell) — after
-                // login, popUntil(isFirst) returns to OceanaShell.
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => WelcomePage(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      );
-    },
+    builder: (ctx) => const _SwitchPortalAccountsSheet(),
   );
 }
 
+class _SwitchPortalAccountsSheet extends StatefulWidget {
+  const _SwitchPortalAccountsSheet();
+
+  @override
+  State<_SwitchPortalAccountsSheet> createState() =>
+      _SwitchPortalAccountsSheetState();
+}
+
+class _SwitchPortalAccountsSheetState extends State<_SwitchPortalAccountsSheet> {
+  String? _switchingEmail;
+
+  List<SavedPortalLogin> get _rows {
+    final current = tradingService.userPortal?.email.trim().toLowerCase() ?? '';
+    final list = [...tradingService.savedPortalLogins];
+    // Ensure current email is always visible even if list was empty.
+    if (current.isNotEmpty && !list.any((a) => a.email == current)) {
+      list.insert(
+        0,
+        SavedPortalLogin(
+          email: current,
+          name: portalDisplayName(),
+          lastLogin: DateTime.now(),
+        ),
+      );
+    }
+    // Current first.
+    list.sort((a, b) {
+      if (a.email == current) return -1;
+      if (b.email == current) return 1;
+      final at = a.lastLogin?.millisecondsSinceEpoch ?? 0;
+      final bt = b.lastLogin?.millisecondsSinceEpoch ?? 0;
+      return bt.compareTo(at);
+    });
+    return list;
+  }
+
+  Future<void> _switchTo(SavedPortalLogin account) async {
+    final current = tradingService.userPortal?.email.trim().toLowerCase() ?? '';
+    if (account.email == current) {
+      Navigator.pop(context);
+      return;
+    }
+    if (account.password.isEmpty) {
+      Navigator.pop(context);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => LoginPage(initialEmail: account.email),
+        ),
+      );
+      return;
+    }
+    setState(() => _switchingEmail = account.email);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await tradingService.loginWithEmail(account.email, account.password);
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _switchingEmail = null);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
+
+  Future<void> _addNew() async {
+    Navigator.pop(context);
+    await tradingService.logout();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => WelcomePage()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = tradingService.userPortal?.email.trim().toLowerCase() ?? '';
+    final rows = _rows;
+    final busy = _switchingEmail != null;
+
+    final maxListH = MediaQuery.sizeOf(context).height * 0.45;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        8,
+        16,
+        12 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Switch Account',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: busy ? null : () => Navigator.pop(context),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(OcIcons.x),
+              ),
+            ],
+          ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxListH),
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              children: [
+                for (final a in rows)
+                  _SwitchAccountTile(
+                    name: a.name.trim().isNotEmpty
+                        ? a.name.trim()
+                        : (a.email == current
+                            ? portalDisplayName()
+                            : a.email.split('@').first),
+                    email: a.email,
+                    selected: a.email == current,
+                    loading: _switchingEmail == a.email,
+                    onTap: busy ? null : () => _switchTo(a),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          OcPrimaryButton(
+            label: 'Add New +',
+            onPressed: busy ? null : _addNew,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SwitchAccountTile extends StatelessWidget {
-  _SwitchAccountTile({
+  const _SwitchAccountTile({
     required this.name,
     required this.email,
     required this.selected,
     required this.onTap,
+    this.loading = false,
   });
 
   final String name;
   final String email;
   final bool selected;
-  final VoidCallback onTap;
+  final bool loading;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -334,15 +455,15 @@ class _SwitchAccountTile extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         child: Row(
           children: [
             CircleAvatar(
-              radius: 24,
+              radius: 22,
               backgroundColor: OcColors.primarySoft,
-              child: Icon(OcIcons.user, color: OcColors.primary, size: 26),
+              child: Icon(OcIcons.user, color: OcColors.primary, size: 24),
             ),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -351,13 +472,13 @@ class _SwitchAccountTile extends StatelessWidget {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
                     ),
                   ),
                   if (email.isNotEmpty) ...[
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
                       email,
                       maxLines: 1,
@@ -371,8 +492,14 @@ class _SwitchAccountTile extends StatelessWidget {
                 ],
               ),
             ),
-            if (selected)
-              const Icon(
+            if (loading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else if (selected)
+              Icon(
                 OcIcons.checkCircle2,
                 color: OcColors.primary,
                 size: 22,

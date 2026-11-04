@@ -37,6 +37,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
 
   double _volume = 0.01;
   bool _busy = false;
+  bool _switching = false;
   final _volumeCtrl = TextEditingController(text: '0.01');
   final _volumeFocus = FocusNode();
 
@@ -218,6 +219,133 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     }
   }
 
+  Future<void> _showAccountSheet() async {
+    if (_switching) return;
+    if (tradingService.hasUserPortal) {
+      try {
+        await tradingService.refreshLinkedAccounts();
+      } catch (_) {}
+      if (!mounted) return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: OcColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return AnimatedBuilder(
+          animation: tradingService,
+          builder: (ctx, _) {
+            final session = tradingService.session;
+            final sessionNum = session?.accountNumber.trim() ?? '';
+            final sessionId = session?.accountId.trim() ?? '';
+            final accounts = tradingService.linkedAccounts
+                .where((a) => a.accountNumber.trim().isNotEmpty)
+                .toList();
+            final rows = accounts.isNotEmpty
+                ? accounts
+                : [
+                    if (session != null && sessionNum.isNotEmpty)
+                      LinkedTradingAccount(
+                        id: session.accountId,
+                        accountNumber: session.accountNumber,
+                        accountType: tradingService.isActiveAccountDemo
+                            ? 'demo'
+                            : 'live',
+                        balance: tradingService.account.balance,
+                        equity: tradingService.account.equity,
+                        isPrimary: true,
+                      ),
+                  ];
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Select Account',
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(OcIcons.x),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    for (final a in rows)
+                      _ChartAccountTile(
+                        account: a,
+                        active: (sessionId.isNotEmpty && a.id == sessionId) ||
+                            (sessionNum.isNotEmpty &&
+                                a.accountNumber.trim() == sessionNum),
+                        onTap: () async {
+                          final isActive =
+                              (sessionId.isNotEmpty && a.id == sessionId) ||
+                                  (sessionNum.isNotEmpty &&
+                                      a.accountNumber.trim() == sessionNum);
+                          if (isActive) {
+                            Navigator.pop(ctx);
+                            return;
+                          }
+                          Navigator.pop(ctx);
+                          setState(() => _switching = true);
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            if (a.id.isNotEmpty &&
+                                tradingService.hasUserPortal) {
+                              await tradingService.activateLinkedAccount(a.id);
+                            } else if (tradingService.fpAccounts.any(
+                              (f) =>
+                                  f.accountNumber == a.accountNumber &&
+                                  f.password.isNotEmpty,
+                            )) {
+                              final fp = tradingService.fpAccounts.firstWhere(
+                                (f) => f.accountNumber == a.accountNumber,
+                              );
+                              await tradingService.login(
+                                fp.accountNumber,
+                                fp.password,
+                              );
+                            }
+                          } catch (e) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e
+                                      .toString()
+                                      .replaceFirst('Exception: ', ''),
+                                ),
+                              ),
+                            );
+                          } finally {
+                            if (mounted) {
+                              setState(() => _switching = false);
+                            }
+                          }
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Keyboard (symbol search / qty) must NOT resize the TradingView WebView.
@@ -235,6 +363,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
                 symbol: widget.symbol,
                 active: widget.active,
                 onApps: () => ShellScope.of(context).openTab(3),
+                onAccount: _switching ? null : _showAccountSheet,
                 onPickSymbol: _pickSymbol,
               ),
               _toolbar(),
@@ -401,7 +530,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
             child: InkWell(
               onTap: () {},
               borderRadius: BorderRadius.circular(12),
-              child: const SizedBox(
+              child: SizedBox(
                 width: 46,
                 height: 46,
                 child: Icon(
@@ -572,11 +701,13 @@ class _LiveHeader extends StatefulWidget {
     required this.active,
     required this.onApps,
     required this.onPickSymbol,
+    this.onAccount,
   });
 
   final String symbol;
   final bool active;
   final VoidCallback onApps;
+  final VoidCallback? onAccount;
   final VoidCallback onPickSymbol;
 
   @override
@@ -628,56 +759,63 @@ class _LiveHeaderState extends State<_LiveHeader> {
             icon: _FourDots(size: 18),
           ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '\$${formatMoney(pnl)}',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: pnlColor,
-                    height: 1.1,
+            child: InkWell(
+              onTap: widget.onAccount,
+              borderRadius: BorderRadius.circular(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '\$${formatMoney(pnl)}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: pnlColor,
+                      height: 1.1,
+                    ),
                   ),
-                ),
-                SizedBox(height: 4),
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: OcColors.primarySoft,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        tradingService.isActiveAccountDemo ? 'DEMO' : 'LIVE',
-                        style: TextStyle(
-                          color: OcColors.primary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 10,
+                  SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: OcColors.primarySoft,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          tradingService.isActiveAccountDemo ? 'DEMO' : 'LIVE',
+                          style: TextStyle(
+                            color: OcColors.primary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                          ),
                         ),
                       ),
-                    ),
-                    SizedBox(width: 6),
-                    Text(
-                      _accountNumber(),
-                      style: TextStyle(
-                        color: OcColors.textSecondary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                      SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _accountNumber(),
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: OcColors.textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
-                    ),
-                    Icon(
-                      OcIcons.chevronDown,
-                      size: 16,
-                      color: OcColors.textMuted,
-                    ),
-                  ],
-                ),
-              ],
+                      Icon(
+                        OcIcons.chevronDown,
+                        size: 16,
+                        color: OcColors.textMuted,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           Material(
@@ -696,13 +834,13 @@ class _LiveHeaderState extends State<_LiveHeader> {
                   children: [
                     Text(
                       widget.symbol,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: OcColors.primary,
                         fontWeight: FontWeight.w800,
                         fontSize: 13,
                       ),
                     ),
-                    const Icon(
+                    Icon(
                       OcIcons.chevronDown,
                       size: 16,
                       color: OcColors.primary,
@@ -713,6 +851,120 @@ class _LiveHeaderState extends State<_LiveHeader> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ChartAccountTile extends StatelessWidget {
+  const _ChartAccountTile({
+    required this.account,
+    required this.active,
+    required this.onTap,
+  });
+
+  final LinkedTradingAccount account;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bal = account.equity > 0 ? account.equity : account.balance;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: OcColors.bg,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: account.isDemo
+                        ? OcColors.primarySoft
+                        : OcColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    OcIcons.wallet,
+                    color: account.isDemo ? OcColors.primary : Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            account.planName.trim().isNotEmpty
+                                ? account.planName.trim()
+                                : (account.isDemo ? 'Demo' : 'Live'),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          if (active) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: OcColors.depositBg,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'ACTIVE',
+                                style: TextStyle(
+                                  color: OcColors.depositFg,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${account.isDemo ? 'Demo' : 'Live'} · ${account.accountNumber}',
+                        style: TextStyle(
+                          color: OcColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10.5,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '\$${formatMoney(bal)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                          color: OcColors.text,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  active ? OcIcons.radioChecked : OcIcons.radioUnchecked,
+                  color: active ? OcColors.primary : OcColors.textMuted,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

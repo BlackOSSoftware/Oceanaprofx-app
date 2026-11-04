@@ -9,7 +9,6 @@ import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
 import 'oceana_add_symbols_page.dart';
 import 'quote_data.dart';
-import 'quotes_screen.dart' show displayQuoteFor;
 import 'symbol_flags.dart';
 
 class OceanaQuotesScreen extends StatefulWidget {
@@ -158,7 +157,7 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
                           children: [
                             Text(
                               _sortLabel,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: OcColors.primary,
                                 fontWeight: FontWeight.w700,
                                 fontSize: 10.5,
@@ -233,7 +232,7 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
                     ),
             ),
             if (_switching)
-              const LinearProgressIndicator(
+              LinearProgressIndicator(
                 minHeight: 2,
                 color: OcColors.primary,
               ),
@@ -282,7 +281,7 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
                     ),
                   ),
                   if (on)
-                    const Icon(
+                    Icon(
                       OcIcons.checkCircle2,
                       color: OcColors.primary,
                       size: 22,
@@ -341,7 +340,14 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
     );
   }
 
-  void _showAccountSheet(BuildContext context) {
+  Future<void> _showAccountSheet(BuildContext context) async {
+    if (tradingService.hasUserPortal) {
+      try {
+        await tradingService.refreshLinkedAccounts();
+      } catch (_) {}
+      if (!mounted) return;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: OcColors.surface,
@@ -350,92 +356,108 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        final session = tradingService.session;
-        final accounts = tradingService.linkedAccounts;
-        final rows = accounts.isNotEmpty
-            ? accounts
-            : [
-                if (session != null)
-                  LinkedTradingAccount(
-                    id: session.accountId,
-                    accountNumber: session.accountNumber,
-                    accountType:
-                        tradingService.isActiveAccountDemo ? 'demo' : 'live',
-                    balance: tradingService.account.balance,
-                    equity: tradingService.account.equity,
-                    isPrimary: true,
-                  ),
-              ];
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Select Account',
-                      style: TextStyle(
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w800,
+        return AnimatedBuilder(
+          animation: tradingService,
+          builder: (ctx, _) {
+            final session = tradingService.session;
+            final sessionNum = session?.accountNumber.trim() ?? '';
+            final sessionId = session?.accountId.trim() ?? '';
+            // Only this portal user's linked accounts — never leftover FP cards.
+            final accounts = tradingService.linkedAccounts
+                .where((a) => a.accountNumber.trim().isNotEmpty)
+                .toList();
+            final rows = accounts.isNotEmpty
+                ? accounts
+                : [
+                    if (session != null && sessionNum.isNotEmpty)
+                      LinkedTradingAccount(
+                        id: session.accountId,
+                        accountNumber: session.accountNumber,
+                        accountType: tradingService.isActiveAccountDemo
+                            ? 'demo'
+                            : 'live',
+                        balance: tradingService.account.balance,
+                        equity: tradingService.account.equity,
+                        isPrimary: true,
                       ),
+                  ];
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Select Account',
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(OcIcons.x),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(OcIcons.x),
-                    ),
+                    const SizedBox(height: 4),
+                    for (final a in rows)
+                      _AccountTile(
+                        account: a,
+                        active: (sessionId.isNotEmpty && a.id == sessionId) ||
+                            (sessionNum.isNotEmpty &&
+                                a.accountNumber.trim() == sessionNum),
+                        onTap: () async {
+                          final isActive =
+                              (sessionId.isNotEmpty && a.id == sessionId) ||
+                                  (sessionNum.isNotEmpty &&
+                                      a.accountNumber.trim() == sessionNum);
+                          if (isActive) {
+                            Navigator.pop(ctx);
+                            return;
+                          }
+                          Navigator.pop(ctx);
+                          setState(() => _switching = true);
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            if (a.id.isNotEmpty &&
+                                tradingService.hasUserPortal) {
+                              await tradingService.activateLinkedAccount(a.id);
+                            } else if (tradingService.fpAccounts.any(
+                              (f) =>
+                                  f.accountNumber == a.accountNumber &&
+                                  f.password.isNotEmpty,
+                            )) {
+                              final fp = tradingService.fpAccounts.firstWhere(
+                                (f) => f.accountNumber == a.accountNumber,
+                              );
+                              await tradingService.login(
+                                fp.accountNumber,
+                                fp.password,
+                              );
+                            }
+                          } catch (e) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e.toString().replaceFirst('Exception: ', ''),
+                                ),
+                              ),
+                            );
+                          } finally {
+                            if (mounted) setState(() => _switching = false);
+                          }
+                        },
+                      ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                for (final a in rows)
-                  _AccountTile(
-                    account: a,
-                    active: session?.accountNumber == a.accountNumber ||
-                        session?.accountId == a.id,
-                    onTap: () async {
-                      if (session?.accountId == a.id ||
-                          session?.accountNumber == a.accountNumber) {
-                        Navigator.pop(ctx);
-                        return;
-                      }
-                      Navigator.pop(ctx);
-                      setState(() => _switching = true);
-                      final messenger = ScaffoldMessenger.of(context);
-                      try {
-                        if (a.id.isNotEmpty && tradingService.hasUserPortal) {
-                          await tradingService.activateLinkedAccount(a.id);
-                        } else if (tradingService.fpAccounts.any(
-                          (f) =>
-                              f.accountNumber == a.accountNumber &&
-                              f.password.isNotEmpty,
-                        )) {
-                          final fp = tradingService.fpAccounts.firstWhere(
-                            (f) => f.accountNumber == a.accountNumber,
-                          );
-                          await tradingService.login(
-                            fp.accountNumber,
-                            fp.password,
-                          );
-                        }
-                      } catch (e) {
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              e.toString().replaceFirst('Exception: ', ''),
-                            ),
-                          ),
-                        );
-                      } finally {
-                        if (mounted) setState(() => _switching = false);
-                      }
-                    },
-                  ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -614,7 +636,7 @@ class _LiveHeaderState extends State<_LiveHeader> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: widget.onAdd,
-              child: const SizedBox(
+              child: SizedBox(
                 width: 32,
                 height: 32,
                 child: Icon(OcIcons.plus, color: OcColors.primary, size: 18),
@@ -941,7 +963,9 @@ class _AccountTile extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            account.isDemo ? 'Demo' : 'Live',
+                            account.planName.trim().isNotEmpty
+                                ? account.planName.trim()
+                                : (account.isDemo ? 'Demo' : 'Live'),
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
                               fontSize: 13,
@@ -972,7 +996,7 @@ class _AccountTile extends StatelessWidget {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        account.accountNumber,
+                        '${account.isDemo ? 'Demo' : 'Live'} · ${account.accountNumber}',
                         style: TextStyle(
                           color: OcColors.textSecondary,
                           fontWeight: FontWeight.w600,

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#001529</color>
-    <!-- White splash; Oceana brand mark centered. -->
-    <color name="splash_background">#FFFFFF</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Black splash — matches new Oceana logo plate. -->
+    <color name="splash_background">#000000</color>
 </resources>

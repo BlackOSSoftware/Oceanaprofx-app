@@ -1,4 +1,4 @@
-package com.mt5app.mt5_app
+package com.alstrades.portal
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -20,7 +20,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // App update: "Install unknown apps" permission check / settings.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mt5/app_update")
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "oceana/app_update")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "canInstallPackages" -> result.success(

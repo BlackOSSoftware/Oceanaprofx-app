@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mt5app.mt5_app"
+    namespace = "com.alstrades.portal"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,7 +19,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.mt5app.mt5_app"
+        // Distinct from MetaTrader / mt5-app so updates don't overwrite MT5.
+        applicationId = "com.alstrades.portal"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -53,4 +54,3 @@ dependencies {
 }
 
 // Icons / splash PNGs are generated into res/ (see splash_logo + mipmaps).
-// Do not overwrite density-sized launchers with the raw 512px metaLogo.

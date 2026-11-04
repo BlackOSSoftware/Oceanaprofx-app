@@ -10,7 +10,7 @@ import 'app_update_info.dart';
 
 /// APK update: server par naya build hai ya nahi + install permission.
 abstract final class AppUpdateService {
-  static const _channel = MethodChannel('mt5/app_update');
+  static const _channel = MethodChannel('oceana/app_update');
 
   static bool get supported => !kIsWeb && Platform.isAndroid;
 

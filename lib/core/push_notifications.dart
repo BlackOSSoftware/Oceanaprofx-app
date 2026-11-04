@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,7 +28,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// FCM bootstrap for Oceana Android APK.
 ///
 /// Requires `android/app/google-services.json` from Firebase project
-/// `trading-fdee2` for package `com.mt5app.mt5_app`.
+/// `trading-fdee2` for package `com.alstrades.portal`.
 ///
 /// Android does **not** auto-display notification payloads while the app is
 /// in the foreground — we mirror them via [flutter_local_notifications].
@@ -41,7 +42,25 @@ abstract final class PushNotifications {
   static final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
 
+  /// Bumps when a push arrives so inbox UI / More badge can refresh.
+  /// Value is a monotonic tick (listeners ignore the number).
+  static final ValueNotifier<int> inboxTick = ValueNotifier<int>(0);
+
   static bool get enabled => _enabled;
+
+  static void _notifyInboxChanged() {
+    inboxTick.value = inboxTick.value + 1;
+  }
+
+  /// FCM often lands before inbox DB write finishes — soft delay + immediate.
+  static void _scheduleInboxRefresh() {
+    _notifyInboxChanged();
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        _notifyInboxChanged();
+      }),
+    );
+  }
 
   static Future<void> init() async {
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
@@ -81,6 +100,7 @@ abstract final class PushNotifications {
       _openSub?.cancel();
       _openSub = FirebaseMessaging.onMessageOpenedApp.listen((msg) {
         debugPrint('[FCM] opened: ${msg.messageId} ${msg.notification?.title}');
+        _scheduleInboxRefresh();
       });
 
       _fgSub?.cancel();
@@ -89,6 +109,7 @@ abstract final class PushNotifications {
           '[FCM] foreground: ${msg.notification?.title} / ${msg.notification?.body}',
         );
         unawaited(_showForeground(msg));
+        _scheduleInboxRefresh();
       });
 
       _tokenSub?.cancel();
@@ -110,6 +131,7 @@ abstract final class PushNotifications {
     const iosInit = DarwinInitializationSettings();
     await _local.initialize(
       settings: const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: (_) => _scheduleInboxRefresh(),
     );
 
     final android = _local.resolvePlatformSpecificImplementation<

@@ -358,6 +358,10 @@ class LivePosition {
   LivePosition copyWith({
     double? currentPrice,
     double? floatingPnL,
+    double? stopLoss,
+    double? takeProfit,
+    bool clearStopLoss = false,
+    bool clearTakeProfit = false,
   }) =>
       LivePosition(
         positionId: positionId,
@@ -369,8 +373,8 @@ class LivePosition {
         currentPrice: currentPrice ?? this.currentPrice,
         floatingPnL: floatingPnL ?? this.floatingPnL,
         openTime: openTime,
-        stopLoss: stopLoss,
-        takeProfit: takeProfit,
+        stopLoss: clearStopLoss ? null : (stopLoss ?? this.stopLoss),
+        takeProfit: clearTakeProfit ? null : (takeProfit ?? this.takeProfit),
         swap: swap,
         commission: commission,
       );
@@ -525,6 +529,47 @@ class UserPortalSession {
       );
 }
 
+/// Device-local saved portal email (Switch Account list — survives logout).
+class SavedPortalLogin {
+  const SavedPortalLogin({
+    required this.email,
+    this.name = '',
+    this.password = '',
+    this.lastLogin,
+  });
+
+  final String email;
+  final String name;
+  final String password;
+  final DateTime? lastLogin;
+
+  SavedPortalLogin copyWith({
+    String? name,
+    String? password,
+    DateTime? lastLogin,
+  }) =>
+      SavedPortalLogin(
+        email: email,
+        name: name ?? this.name,
+        password: password ?? this.password,
+        lastLogin: lastLogin ?? this.lastLogin,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'email': email,
+        'name': name,
+        'password': password,
+        'lastLogin': lastLogin?.toIso8601String(),
+      };
+
+  factory SavedPortalLogin.fromJson(Map<String, dynamic> j) => SavedPortalLogin(
+        email: '${j['email'] ?? ''}'.trim().toLowerCase(),
+        name: '${j['name'] ?? ''}'.trim(),
+        password: '${j['password'] ?? ''}',
+        lastLogin: DateTime.tryParse('${j['lastLogin'] ?? ''}'),
+      );
+}
+
 /// One trading account under the logged-in email user.
 class LinkedTradingAccount {
   const LinkedTradingAccount({
@@ -555,15 +600,27 @@ class LinkedTradingAccount {
   factory LinkedTradingAccount.fromJson(Map<String, dynamic> j) =>
       LinkedTradingAccount(
         id: '${j['_id'] ?? j['id'] ?? ''}',
-        accountNumber: '${j['account_number'] ?? ''}',
-        accountType: '${j['account_type'] ?? ''}',
-        planName: '${j['plan_name'] ?? ''}',
+        accountNumber: '${j['account_number'] ?? j['accountNumber'] ?? ''}',
+        accountType: '${j['account_type'] ?? j['accountType'] ?? ''}',
+        planName: '${j['plan_name'] ?? j['planName'] ?? ''}',
         balance: (j['balance'] as num?)?.toDouble() ?? 0,
         equity: (j['equity'] as num?)?.toDouble() ?? 0,
         currency: '${j['currency'] ?? 'USD'}',
         status: '${j['status'] ?? 'active'}',
         isPrimary: j['is_primary'] == true || j['isPrimary'] == true,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'account_number': accountNumber,
+        'account_type': accountType,
+        'plan_name': planName,
+        'balance': balance,
+        'equity': equity,
+        'currency': currency,
+        'status': status,
+        'is_primary': isPrimary,
+      };
 }
 
 /// Central live-trading service: REST (account-auth) + market/account WS.
@@ -624,8 +681,14 @@ class TradingService extends ChangeNotifier {
       userPortal != null && userPortal!.accessToken.isNotEmpty;
   List<LinkedTradingAccount> linkedAccounts = const [];
   static const _userPortalKey = 'user_portal_session';
+  /// Cached portal trading accounts (scoped by email).
+  static const _linkedAccountsKey = 'linked_accounts_cache';
+  static const _linkedAccountsEmailKey = 'linked_accounts_email';
   /// Last successful email login (prefill Login form — survives logout).
   static const _emailCredsKey = 'email_login_credentials';
+  /// All portal emails ever logged in on this device (Switch Account).
+  static const _portalLoginsKey = 'saved_portal_logins';
+  List<SavedPortalLogin> savedPortalLogins = const [];
 
   // MetaQuotes demo account (Brokers -> MetaQuotes Ltd.) - profile.
   // Iska apna server trading account hai; active hone par [session]
@@ -694,9 +757,21 @@ class TradingService extends ChangeNotifier {
   // ---------------- session ----------------
 
   bool _bootstrapped = false;
+  bool _localRestored = false;
+  Completer<void>? _localRestoreCompleter;
+
+  /// True after [restoreLocal] finishes (session / portal from disk).
+  bool get localRestored => _localRestored;
+
+  /// Await until disk session is loaded (safe for auth gates).
+  Future<void> get whenLocalRestored {
+    if (_localRestored) return Future.value();
+    return (_localRestoreCompleter ??= Completer<void>()).future;
+  }
 
   /// Disk se session / accounts — network nahi. First frame ke pehle.
   Future<void> restoreLocal() async {
+    if (_localRestored) return;
     final prefs = await SharedPreferences.getInstance();
     final mqRaw = prefs.getString('mq_active_account');
     if (mqRaw != null) {
@@ -725,6 +800,61 @@ class TradingService extends ChangeNotifier {
         );
       } catch (_) {}
     }
+    savedPortalLogins = [
+      for (final raw in prefs.getStringList(_portalLoginsKey) ?? const [])
+        ?_decodePortalLogin(raw),
+    ];
+    // Migrate legacy single email credential into the multi-account list.
+    final legacyRaw = prefs.getString(_emailCredsKey);
+    if (legacyRaw != null && legacyRaw.isNotEmpty) {
+      try {
+        final j = jsonDecode(legacyRaw);
+        if (j is Map) {
+          final e = '${j['email'] ?? ''}'.trim().toLowerCase();
+          final p = '${j['password'] ?? ''}';
+          if (e.isNotEmpty &&
+              p.isNotEmpty &&
+              !savedPortalLogins.any((a) => a.email == e)) {
+            savedPortalLogins = [
+              SavedPortalLogin(email: e, password: p, lastLogin: DateTime.now()),
+              ...savedPortalLogins,
+            ];
+            unawaited(_persistPortalLogins());
+          }
+        }
+      } catch (_) {}
+    }
+    // Restore linked accounts only for the same portal email.
+    final portalEmail = userPortal?.email.trim().toLowerCase() ?? '';
+    final linkedEmail =
+        (prefs.getString(_linkedAccountsEmailKey) ?? '').trim().toLowerCase();
+    final linkedRaw = prefs.getString(_linkedAccountsKey);
+    if (portalEmail.isNotEmpty &&
+        linkedEmail == portalEmail &&
+        linkedRaw != null &&
+        linkedRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(linkedRaw);
+        if (decoded is List) {
+          linkedAccounts = [
+            for (final row in decoded)
+              if (row is Map)
+                LinkedTradingAccount.fromJson(Map<String, dynamic>.from(row)),
+          ];
+        }
+      } catch (_) {
+        linkedAccounts = const [];
+      }
+    } else {
+      linkedAccounts = const [];
+      // Drop leftover FP cards from another email.
+      if (portalEmail.isNotEmpty && linkedEmail.isNotEmpty && linkedEmail != portalEmail) {
+        fpAccounts = const [];
+      }
+    }
+    _localRestored = true;
+    final c = _localRestoreCompleter;
+    if (c != null && !c.isCompleted) c.complete();
     notifyListeners();
   }
 
@@ -732,6 +862,11 @@ class TradingService extends ChangeNotifier {
   Future<void> bootstrapNetwork() async {
     if (_bootstrapped) return;
     _bootstrapped = true;
+    if (hasUserPortal) {
+      try {
+        await refreshLinkedAccounts();
+      } catch (_) {}
+    }
     if (session != null) {
       await _validateSession();
       if (session != null) {
@@ -742,6 +877,12 @@ class TradingService extends ChangeNotifier {
       }
     }
     if (session == null) await ensureSession();
+    // Portal JWT still valid but trade session missing (expire / wipe).
+    if (session == null && hasUserPortal && !loggedOutByUser) {
+      try {
+        await activatePrimaryAccount();
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -918,8 +1059,36 @@ class TradingService extends ChangeNotifier {
     }
   }
 
+  static SavedPortalLogin? _decodePortalLogin(String raw) {
+    try {
+      final d = jsonDecode(raw);
+      if (d is Map<String, dynamic>) {
+        final a = SavedPortalLogin.fromJson(d);
+        return a.email.isEmpty ? null : a;
+      }
+      if (d is Map) {
+        final a = SavedPortalLogin.fromJson(Map<String, dynamic>.from(d));
+        return a.email.isEmpty ? null : a;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _persistPortalLogins() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_portalLoginsKey, [
+      for (final a in savedPortalLogins) jsonEncode(a.toJson()),
+    ]);
+  }
+
   /// Last email + password used for portal login (device local).
   Future<({String email, String password})?> savedEmailLogin() async {
+    if (savedPortalLogins.isNotEmpty) {
+      final top = savedPortalLogins.first;
+      if (top.email.isNotEmpty && top.password.isNotEmpty) {
+        return (email: top.email, password: top.password);
+      }
+    }
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_emailCredsKey);
     if (raw == null || raw.isEmpty) return null;
@@ -935,27 +1104,137 @@ class TradingService extends ChangeNotifier {
     }
   }
 
-  Future<void> rememberEmailLogin(String email, String password) async {
+  /// Save / update a portal email on this device (Switch Account list).
+  Future<void> rememberEmailLogin(
+    String email,
+    String password, {
+    String? name,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final e = email.trim().toLowerCase();
     if (e.isEmpty || password.isEmpty) {
       await prefs.remove(_emailCredsKey);
       return;
     }
+    // Keep legacy single-key for older login prefill paths.
     await prefs.setString(
       _emailCredsKey,
       jsonEncode({'email': e, 'password': password}),
     );
+    final old = savedPortalLogins.where((a) => a.email == e).firstOrNull;
+    final updated = (old ?? SavedPortalLogin(email: e)).copyWith(
+      password: password,
+      name: (name != null && name.trim().isNotEmpty)
+          ? name.trim()
+          : null,
+      lastLogin: DateTime.now(),
+    );
+    savedPortalLogins = [
+      updated,
+      for (final a in savedPortalLogins)
+        if (a.email != e) a,
+    ];
+    await _persistPortalLogins();
+    notifyListeners();
+  }
+
+  Future<void> updateSavedPortalName(String email, String name) async {
+    final e = email.trim().toLowerCase();
+    final n = name.trim();
+    if (e.isEmpty || n.isEmpty) return;
+    final i = savedPortalLogins.indexWhere((a) => a.email == e);
+    if (i < 0) return;
+    savedPortalLogins = [
+      for (var k = 0; k < savedPortalLogins.length; k++)
+        if (k == i) savedPortalLogins[k].copyWith(name: n) else savedPortalLogins[k],
+    ];
+    await _persistPortalLogins();
+    notifyListeners();
+  }
+
+  Future<void> removeSavedPortalLogin(String email) async {
+    final e = email.trim().toLowerCase();
+    savedPortalLogins = [
+      for (final a in savedPortalLogins)
+        if (a.email != e) a,
+    ];
+    await _persistPortalLogins();
+    notifyListeners();
+  }
+
+  /// Drop previous portal user's local trading identity (accounts / session).
+  /// Call before a different email signs in so Dashboard never shows old mail's accounts.
+  Future<void> _wipeLocalTradingIdentity() async {
+    disconnectWs();
+    session = null;
+    linkedAccounts = const [];
+    fpAccounts = const [];
+    mqAccount = null;
+    userProfile = null;
+    myKyc = null;
+    activeSource = '';
+    _resetTradingState();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('session');
+    await prefs.remove(_fpAccountsKey);
+    await prefs.remove(_linkedAccountsKey);
+    await prefs.remove(_linkedAccountsEmailKey);
+    await prefs.remove('mq_active_account');
+    await prefs.setString('active_source', '');
+  }
+
+  Future<void> _persistLinkedAccounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = userPortal?.email.trim().toLowerCase() ?? '';
+    if (email.isEmpty) {
+      await prefs.remove(_linkedAccountsKey);
+      await prefs.remove(_linkedAccountsEmailKey);
+      return;
+    }
+    await prefs.setString(_linkedAccountsEmailKey, email);
+    await prefs.setString(
+      _linkedAccountsKey,
+      jsonEncode([for (final a in linkedAccounts) a.toJson()]),
+    );
+  }
+
+  /// Keep local FP cards in sync with this portal user's linked accounts
+  /// (all accounts saved — not only the active one).
+  Future<void> _syncFpWithLinked() async {
+    if (!hasUserPortal || linkedAccounts.isEmpty) return;
+    final oldByNum = <String, SavedFpAccount>{
+      for (final a in fpAccounts)
+        if (a.accountNumber.trim().isNotEmpty) a.accountNumber.trim(): a,
+    };
+    final next = <SavedFpAccount>[];
+    for (final a in linkedAccounts) {
+      final num = a.accountNumber.trim();
+      if (num.isEmpty) continue;
+      final old = oldByNum[num];
+      next.add(
+        (old ?? SavedFpAccount(accountNumber: num)).copyWith(
+          name: a.planName.isNotEmpty ? a.planName : null,
+          accountType: a.accountType.isNotEmpty ? a.accountType : null,
+          balance: a.equity > 0 ? a.equity : a.balance,
+          lastLogin: old?.lastLogin ?? DateTime.now(),
+          brokerCode: old?.brokerCode,
+          brokerDisplayName: old?.brokerDisplayName,
+        ),
+      );
+    }
+    fpAccounts = next;
+    await _saveFpAccounts();
   }
 
   /// Email + portal password → user JWT, then open primary trading account.
   Future<void> loginWithEmail(String email, String password) async {
+    final nextEmail = email.trim().toLowerCase();
     final data = await _request(
       'POST',
       '/v1/auth/login',
       auth: false,
       body: {
-        'email': email.trim().toLowerCase(),
+        'email': nextEmail,
         'password': password,
       },
     );
@@ -970,18 +1249,34 @@ class TradingService extends ChangeNotifier {
         payload['isMailVerified'] == 1 ||
         '${payload['isMailVerified']}'.toLowerCase() == 'true';
     if (!mailOk) {
-      throw EmailNotVerifiedException(email.trim().toLowerCase());
+      throw EmailNotVerifiedException(nextEmail);
+    }
+    final prevEmail = userPortal?.email.trim().toLowerCase() ?? '';
+    // Only wipe when switching to a *different* email (keep same-user accounts).
+    if (prevEmail.isNotEmpty && prevEmail != nextEmail) {
+      await _wipeLocalTradingIdentity();
+    } else if (prevEmail.isEmpty &&
+        (fpAccounts.isNotEmpty || session != null || linkedAccounts.isNotEmpty)) {
+      // First portal login on a device that still has leftover trade cards.
+      await _wipeLocalTradingIdentity();
     }
     userPortal = UserPortalSession(
       accessToken: access,
       refreshToken: '${payload['refreshToken'] ?? ''}',
-      email: email.trim().toLowerCase(),
+      email: nextEmail,
     );
     loggedOutByUser = false;
+    userProfile = null;
+    myKyc = null;
     await _persistUserPortal();
     await rememberEmailLogin(email, password);
     await refreshLinkedAccounts();
     await activatePrimaryAccount();
+    try {
+      await fetchUserProfile(force: true);
+      final n = '${userProfile?['name'] ?? ''}'.trim();
+      if (n.isNotEmpty) await updateSavedPortalName(nextEmail, n);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -1386,6 +1681,7 @@ class TradingService extends ChangeNotifier {
   Future<List<LinkedTradingAccount>> refreshLinkedAccounts() async {
     if (!hasUserPortal) {
       linkedAccounts = const [];
+      await _persistLinkedAccounts();
       notifyListeners();
       return linkedAccounts;
     }
@@ -1407,6 +1703,8 @@ class TradingService extends ChangeNotifier {
       }
     }
     linkedAccounts = list;
+    await _persistLinkedAccounts();
+    await _syncFpWithLinked();
     notifyListeners();
     return list;
   }
@@ -1663,7 +1961,15 @@ class TradingService extends ChangeNotifier {
       loggedOutByUser = true;
       userPortal = null;
       linkedAccounts = const [];
+      // Saved FP cards belong to previous user — clear so next email
+      // never sees them on Dashboard / account switcher.
+      fpAccounts = const [];
+      userProfile = null;
+      myKyc = null;
       await prefs.remove(_userPortalKey);
+      await prefs.remove(_fpAccountsKey);
+      await prefs.remove(_linkedAccountsKey);
+      await prefs.remove(_linkedAccountsEmailKey);
       if (wasMq || activeSource == 'mq') {
         mqAccount = null;
         await prefs.remove('mq_active_account');
@@ -2156,6 +2462,17 @@ class TradingService extends ChangeNotifier {
         'takeProfit': takeProfit,
       },
     );
+    final cur = positions[positionId];
+    if (cur != null) {
+      positions[positionId] = cur.copyWith(
+        stopLoss: stopLoss,
+        takeProfit: takeProfit,
+        clearStopLoss: stopLoss == null,
+        clearTakeProfit: takeProfit == null,
+      );
+      notifyListeners();
+    }
+    unawaited(refreshAccount());
   }
 
   Future<void> modifyPending({
@@ -2174,6 +2491,24 @@ class TradingService extends ChangeNotifier {
         'takeProfit': takeProfit,
       },
     );
+    final cur = pendings[orderId];
+    if (cur != null) {
+      pendings[orderId] = PendingOrder(
+        orderId: cur.orderId,
+        ticket: cur.ticket,
+        symbol: cur.symbol,
+        side: cur.side,
+        orderType: cur.orderType,
+        volume: cur.volume,
+        filledVolume: cur.filledVolume,
+        price: price,
+        stopLoss: stopLoss,
+        takeProfit: takeProfit,
+        createdAt: cur.createdAt,
+        currentPrice: cur.currentPrice,
+      );
+      notifyListeners();
+    }
   }
 
   Future<void> cancelPending(String orderId) async {
@@ -2665,6 +3000,7 @@ class TradingService extends ChangeNotifier {
           notifyListeners();
           unawaited(refreshAccount());
         case 'live_pending':
+        case 'live_pending_modify':
           final o = PendingOrder.fromWs(data);
           if (o.orderId.isNotEmpty) {
             if (o.ticket != null) {

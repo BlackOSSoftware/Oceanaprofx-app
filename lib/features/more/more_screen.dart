@@ -43,11 +43,22 @@ class _MoreScreenState extends State<MoreScreen> {
   void initState() {
     super.initState();
     _notificationsOn = PushNotifications.enabled;
+    PushNotifications.inboxTick.addListener(_onPushInbox);
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _version = info.version);
     });
     _loadVerify();
     _loadNotifCount();
+  }
+
+  @override
+  void dispose() {
+    PushNotifications.inboxTick.removeListener(_onPushInbox);
+    super.dispose();
+  }
+
+  void _onPushInbox() {
+    if (mounted) _loadNotifCount();
   }
 
   @override
@@ -99,10 +110,18 @@ class _MoreScreenState extends State<MoreScreen> {
       builder: (context) {
         final session = tradingService.session;
         final portalEmail = tradingService.userPortal?.email ?? '';
-        final name = (session?.name.isNotEmpty == true)
-            ? session!.name
-            : (session?.accountNumber ??
-                (portalEmail.isNotEmpty ? portalEmail : 'Guest'));
+        // Portal profile name only — never MT session.name (wrong/stale user).
+        final profileName =
+            '${tradingService.userProfile?['name'] ?? ''}'.trim();
+        final name = tradingService.hasUserPortal
+            ? (profileName.isNotEmpty
+                ? profileName
+                : (portalEmail.isNotEmpty
+                    ? portalEmail.split('@').first
+                    : 'User'))
+            : (session?.name.isNotEmpty == true
+                ? session!.name
+                : (session?.accountNumber ?? 'Guest'));
 
         return Scaffold(
           backgroundColor: OcColors.bg,
@@ -161,7 +180,7 @@ class _MoreScreenState extends State<MoreScreen> {
                   await OceanaProfileEditPage.open(context);
                   if (mounted) await _loadVerify();
                 },
-                icon: const Icon(OcIcons.pencil, color: OcColors.primary, size: 20),
+                icon: Icon(OcIcons.pencil, color: OcColors.primary, size: 20),
               ),
             ],
           ),
@@ -257,14 +276,6 @@ class _MoreScreenState extends State<MoreScreen> {
               const SizedBox(height: 16),
               _MenuCard(
                 children: [
-                  _MenuTile(
-                    icon: OcIcons.bell,
-                    title: 'Notifications',
-                    badge: _notifUnread > 0
-                        ? (_notifUnread > 99 ? '99+' : '$_notifUnread')
-                        : null,
-                    onTap: _openNotifications,
-                  ),
                   _MenuTile(
                     icon: OcIcons.headphones,
                     title: 'Support Tickets',
@@ -387,10 +398,10 @@ class _MoreScreenState extends State<MoreScreen> {
                   color: OcColors.primarySoft.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
                     Icon(OcIcons.megaphone, color: OcColors.primary, size: 18),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         email,
@@ -446,9 +457,9 @@ class _MoreScreenState extends State<MoreScreen> {
       ),
       builder: (ctx) {
         return AnimatedBuilder(
-          animation: mtDarkMode,
+          animation: Listenable.merge([mtThemePreference, mtDarkMode]),
           builder: (_, _) {
-            final isDark = mtDarkMode.value;
+            final pref = mtThemePreference.value;
             return Padding(
               padding: EdgeInsets.fromLTRB(
                 20,
@@ -494,24 +505,27 @@ class _MoreScreenState extends State<MoreScreen> {
                   _ThemeOption(
                     icon: OcIcons.settings2,
                     label: 'System Default',
-                    selected: false,
-                    onTap: () {},
+                    selected: pref == MtThemePreference.system,
+                    onTap: () {
+                      setMtThemePreference(MtThemePreference.system);
+                      Navigator.pop(ctx);
+                    },
                   ),
                   _ThemeOption(
                     icon: OcIcons.sun,
                     label: 'Light',
-                    selected: !isDark,
+                    selected: pref == MtThemePreference.light,
                     onTap: () {
-                      setMtDarkMode(false);
+                      setMtThemePreference(MtThemePreference.light);
                       Navigator.pop(ctx);
                     },
                   ),
                   _ThemeOption(
                     icon: OcIcons.moon,
                     label: 'Dark',
-                    selected: isDark,
+                    selected: pref == MtThemePreference.dark,
                     onTap: () {
-                      setMtDarkMode(true);
+                      setMtThemePreference(MtThemePreference.dark);
                       Navigator.pop(ctx);
                     },
                   ),
@@ -615,7 +629,7 @@ class _ProfileRow extends StatelessWidget {
                 color: OcColors.primarySoft,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 OcIcons.chevronDown,
                 size: 18,
                 color: OcColors.primary,
@@ -678,7 +692,7 @@ class _VerifyCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: progress.kycPending
-                            ? const Color(0xFFFFF3CD)
+                            ? OcColors.warnBg
                             : OcColors.withdrawBg,
                         borderRadius: BorderRadius.circular(99),
                       ),
@@ -686,7 +700,7 @@ class _VerifyCard extends StatelessWidget {
                         progress.kycPending ? 'Pending' : 'Rejected',
                         style: TextStyle(
                           color: progress.kycPending
-                              ? const Color(0xFFB78103)
+                              ? OcColors.warnFg
                               : OcColors.withdrawFg,
                           fontWeight: FontWeight.w800,
                           fontSize: 10.5,
@@ -803,16 +817,16 @@ class _QuickActions extends StatelessWidget {
         tile(
           icon: OcIcons.arrowUpRight,
           label: 'Withdraw',
-          bg: const Color(0xFFFFF3E0),
-          fg: const Color(0xFFE65100),
+          bg: OcColors.orangeBg,
+          fg: OcColors.orangeFg,
           onTap: onWithdraw,
         ),
         const SizedBox(width: 10),
         tile(
           icon: OcIcons.arrowLeftRight,
           label: 'Transfer',
-          bg: const Color(0xFFE3F2FD),
-          fg: const Color(0xFF1565C0),
+          bg: OcColors.transferBg,
+          fg: OcColors.transferFg,
           onTap: onTransfer,
         ),
         const SizedBox(width: 10),

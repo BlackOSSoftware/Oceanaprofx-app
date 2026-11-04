@@ -31,24 +31,27 @@ abstract final class OceanaTheme {
   static ThemeData _build(Brightness brightness) {
     final dark = brightness == Brightness.dark;
 
+    // Local tokens so light/dark ThemeData don't fight OcColors mutation order.
+    final primary =
+        dark ? const Color(0xFF8B9BFF) : OcColors.brand;
     final bg = dark ? const Color(0xFF0E0E10) : const Color(0xFFF5F5F7);
     final surface = dark ? const Color(0xFF1A1A1E) : const Color(0xFFFFFFFF);
-    final border = dark ? const Color(0xFF2A2A30) : const Color(0xFFE6E6EA);
+    final border = dark ? const Color(0xFF33333C) : const Color(0xFFE6E6EA);
     final borderStrong =
-        dark ? const Color(0xFF3A3A42) : const Color(0xFFD0D0D6);
-    final text = dark ? const Color(0xFFF2F2F5) : const Color(0xFF111111);
+        dark ? const Color(0xFF484852) : const Color(0xFFD0D0D6);
+    final text = dark ? const Color(0xFFF4F4F7) : const Color(0xFF111111);
     final textSecondary =
-        dark ? const Color(0xFFA0A0AB) : const Color(0xFF6B6B76);
+        dark ? const Color(0xFFB4B4BE) : const Color(0xFF6B6B76);
     final placeholder =
-        dark ? const Color(0xFF6A6A75) : const Color(0xFFB0B0B8);
+        dark ? const Color(0xFF7A7A85) : const Color(0xFFB0B0B8);
     final primaryMuted =
-        dark ? const Color(0xFF3D3DB0) : const Color(0xFFD0D0F5);
+        dark ? const Color(0xFF3A4568) : const Color(0xFFD0D0F5);
 
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       scaffoldBackgroundColor: bg,
-      primaryColor: OcColors.primary,
+      primaryColor: primary,
       canvasColor: bg,
       cardColor: surface,
       dividerColor: border,
@@ -58,7 +61,7 @@ abstract final class OceanaTheme {
       ),
       colorScheme: ColorScheme(
         brightness: brightness,
-        primary: OcColors.primary,
+        primary: primary,
         onPrimary: OcColors.onPrimary,
         secondary: primaryMuted,
         onSecondary: OcColors.onPrimary,
@@ -90,9 +93,9 @@ abstract final class OceanaTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: OcColors.primary,
+          backgroundColor: primary,
           foregroundColor: OcColors.onPrimary,
-          disabledBackgroundColor: OcColors.primary.withValues(alpha: 0.45),
+          disabledBackgroundColor: primary.withValues(alpha: 0.45),
           minimumSize: const Size.fromHeight(46),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -118,14 +121,14 @@ abstract final class OceanaTheme {
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: OcColors.primary),
+        style: TextButton.styleFrom(foregroundColor: primary),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
         hintStyle: GoogleFonts.inter(color: placeholder, fontSize: 12.5),
         labelStyle: GoogleFonts.inter(
-          color: OcColors.primary,
+          color: primary,
           fontWeight: FontWeight.w600,
           fontSize: 12,
         ),
@@ -141,7 +144,7 @@ abstract final class OceanaTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: OcColors.primary, width: 1.4),
+          borderSide: BorderSide(color: primary, width: 1.4),
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
@@ -162,8 +165,8 @@ abstract final class OceanaTheme {
           return Colors.white;
         }),
         trackColor: WidgetStateProperty.resolveWith((s) {
-          if (s.contains(WidgetState.selected)) return OcColors.primary;
-          return dark ? const Color(0xFF3A3A42) : const Color(0xFFCFCFD4);
+          if (s.contains(WidgetState.selected)) return primary;
+          return dark ? const Color(0xFF484852) : const Color(0xFFCFCFD4);
         }),
       ),
       listTileTheme: ListTileThemeData(

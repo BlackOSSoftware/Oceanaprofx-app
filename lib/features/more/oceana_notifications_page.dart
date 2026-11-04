@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/push_notifications.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -19,9 +22,12 @@ class OceanaNotificationsPage extends StatefulWidget {
       _OceanaNotificationsPageState();
 }
 
-class _OceanaNotificationsPageState extends State<OceanaNotificationsPage> {
+class _OceanaNotificationsPageState extends State<OceanaNotificationsPage>
+    with WidgetsBindingObserver {
   bool _loading = true;
   bool _busy = false;
+  bool _loadingInFlight = false;
+  bool _loadAgain = false;
   String? _error;
   int _unread = 0;
   List<Map<String, dynamic>> _items = [];
@@ -29,10 +35,37 @@ class _OceanaNotificationsPageState extends State<OceanaNotificationsPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addObserver(this);
+    PushNotifications.inboxTick.addListener(_onPushInbox);
+    _load(showSpinner: true);
+    // Push often lands before inbox DB is ready — soft retry.
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted) _load(showSpinner: false);
+      }),
+    );
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    PushNotifications.inboxTick.removeListener(_onPushInbox);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _load(showSpinner: false);
+    }
+  }
+
+  void _onPushInbox() {
+    if (!mounted) return;
+    _load(showSpinner: false);
+  }
+
+  Future<void> _load({bool showSpinner = true}) async {
     if (!tradingService.hasUserPortal) {
       setState(() {
         _loading = false;
@@ -42,24 +75,39 @@ class _OceanaNotificationsPageState extends State<OceanaNotificationsPage> {
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final res = await tradingService.fetchNotificationInbox();
-      if (!mounted) return;
+    if (_loadingInFlight) {
+      _loadAgain = true;
+      return;
+    }
+    _loadingInFlight = true;
+    if (showSpinner && mounted) {
       setState(() {
-        _items = res.list;
-        _unread = res.unreadCount;
-        _loading = false;
+        _loading = true;
+        _error = null;
       });
+    }
+    try {
+      do {
+        _loadAgain = false;
+        final res = await tradingService.fetchNotificationInbox();
+        if (!mounted) return;
+        setState(() {
+          _items = res.list;
+          _unread = res.unreadCount;
+          _loading = false;
+          _error = null;
+        });
+      } while (_loadAgain && mounted);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString().replaceFirst('ApiException: ', '');
+        if (_items.isEmpty) {
+          _error = e.toString().replaceFirst('ApiException: ', '');
+        }
       });
+    } finally {
+      _loadingInFlight = false;
     }
   }
 

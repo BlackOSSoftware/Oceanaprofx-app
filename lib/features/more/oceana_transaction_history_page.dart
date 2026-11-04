@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/format.dart';
 import '../../core/trading_service.dart';
@@ -222,7 +222,7 @@ class _OceanaTransactionHistoryPageState
                     ),
                   ),
                   if (on)
-                    const Icon(OcIcons.check, color: OcColors.primary, size: 18),
+                    Icon(OcIcons.check, color: OcColors.primary, size: 18),
                 ],
               ),
             ),
@@ -395,7 +395,7 @@ class _OceanaTransactionHistoryPageState
                       ),
                     ),
                     if (_period == p)
-                      const Icon(
+                      Icon(
                         OcIcons.check,
                         size: 18,
                         color: OcColors.primary,
@@ -717,7 +717,7 @@ class _TxCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(OcIcons.download, size: 18, color: OcColors.primary),
+              Icon(OcIcons.download, size: 18, color: OcColors.primary),
             ],
           ),
         ],

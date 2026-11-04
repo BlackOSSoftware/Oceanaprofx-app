@@ -24,6 +24,8 @@ class _OceanaShellState extends State<OceanaShell> {
   final _shell = ShellController();
   final _built = <int>{};
   bool _welcomeShown = false;
+  bool _hadAccount = false;
+  bool _welcomeCheckRunning = false;
   String _authStamp = '';
 
   static const _tabs = OcNavTab.values;
@@ -38,6 +40,7 @@ class _OceanaShellState extends State<OceanaShell> {
   void initState() {
     super.initState();
     _authStamp = _stamp();
+    _hadAccount = tradingService.hasAnyAccount;
     _shell.addListener(_onShell);
     tradingService.addListener(_onTrade);
     _built.add(_shell.tab);
@@ -60,6 +63,12 @@ class _OceanaShellState extends State<OceanaShell> {
   void _onTrade() {
     // Do NOT rebuild the whole shell on every price tick.
     final next = _stamp();
+    final has = tradingService.hasAnyAccount;
+    if (_hadAccount && !has) {
+      // Explicit logout → allow Broker / Welcome again.
+      _welcomeShown = false;
+    }
+    _hadAccount = has;
     if (next != _authStamp) {
       _authStamp = next;
       if (mounted) setState(() {});
@@ -67,17 +76,23 @@ class _OceanaShellState extends State<OceanaShell> {
     _maybeWelcome();
   }
 
-  void _maybeWelcome() {
-    if (tradingService.isLoggedIn || tradingService.mqLoggedIn) {
-      _welcomeShown = false;
-      return;
-    }
-    if (_welcomeShown) return;
+  Future<void> _maybeWelcome() async {
+    if (_welcomeCheckRunning) return;
+    _welcomeCheckRunning = true;
+    try {
+      await tradingService.whenLocalRestored;
+      if (!mounted) return;
 
-    if (tradingService.hasUserPortal) {
-      _welcomeShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted) return;
+      if (tradingService.isLoggedIn || tradingService.mqLoggedIn) {
+        _welcomeShown = false;
+        _hadAccount = true;
+        return;
+      }
+
+      if (tradingService.hasUserPortal) {
+        if (_welcomeShown) return;
+        _welcomeShown = true;
+        _hadAccount = true;
         try {
           if (!tradingService.isLoggedIn) {
             await tradingService.activatePrimaryAccount();
@@ -86,13 +101,11 @@ class _OceanaShellState extends State<OceanaShell> {
           // Portal session without a tradable account — stay on shell.
         }
         if (mounted) setState(() {});
-      });
-      return;
-    }
+        return;
+      }
 
-    _welcomeShown = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
+      if (_welcomeShown) return;
+      _welcomeShown = true;
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => const BrokerSearchPage(),
@@ -110,7 +123,13 @@ class _OceanaShellState extends State<OceanaShell> {
           ),
         );
       }
-    });
+      // After auth gate closes, allow re-open only if still logged out.
+      if (!tradingService.hasAnyAccount) {
+        _welcomeShown = false;
+      }
+    } finally {
+      _welcomeCheckRunning = false;
+    }
   }
 
   Widget _pageFor(int index) {

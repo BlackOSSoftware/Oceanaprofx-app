@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -107,7 +107,7 @@ class _OceanaChangeLeveragePageState extends State<OceanaChangeLeveragePage> {
                             ),
                           ),
                           if (o == _leverage)
-                            const Icon(
+                            Icon(
                               OcIcons.check,
                               size: 18,
                               color: OcColors.primary,

@@ -52,7 +52,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
     try {
       await AppInstallerPlus().downloadAndInstallApk(
         downloadFileUrl: info.downloadUrl,
-        downloadFileName: 'mt5_update_${info.versionCode}',
+        downloadFileName: 'oceana_update_${info.versionCode}',
         deleteOnError: true,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.clamp(0, 1).toDouble());
@@ -176,7 +176,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
     switch (_step) {
       case _Step.permission:
         return Text(
-          "To update, allow 'Install unknown apps' for MT5 in settings, "
+          "To update, allow 'Install unknown apps' for Oceana in settings, "
           'then tap UPDATE again.',
           style: style,
         );

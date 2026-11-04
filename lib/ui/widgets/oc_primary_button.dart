@@ -78,7 +78,7 @@ class OcOutlinedButton extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             color: OcColors.primary,
             fontSize: 13,
             fontWeight: FontWeight.w600,

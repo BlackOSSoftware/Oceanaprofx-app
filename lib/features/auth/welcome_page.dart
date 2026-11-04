@@ -23,7 +23,7 @@ class WelcomePage extends StatelessWidget {
           child: Column(
             children: [
               Spacer(flex: 2),
-              OcBrandMark(size: 88),
+              const OcBrandMark(height: 110, maxWidth: 300),
               SizedBox(height: 28),
               Text(
                 'All your Trade.\nOne secure place',

@@ -6,11 +6,18 @@ import 'package:flutter/services.dart';
 import 'app/oceana_app.dart';
 import 'core/api_config.dart';
 import 'core/push_notifications.dart';
+import 'core/theme_controller.dart';
 import 'core/trading_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  _applySystemUi();
+  // Session must be on disk BEFORE first frame — otherwise OceanaShell
+  // races restoreLocal and pushes BrokerSearch even when still logged in.
+  await Future.wait([
+    ApiConfig.load(),
+    tradingService.restoreLocal(),
+    loadMtThemePreference(),
+  ]);
   runApp(const OceanaApp());
   unawaited(_bootstrapAfterFirstFrame());
 }
@@ -31,10 +38,6 @@ void _applySystemUi() {
 
 Future<void> _bootstrapAfterFirstFrame() async {
   await Future<void>.delayed(Duration.zero);
-  await Future.wait([
-    ApiConfig.load(),
-    tradingService.restoreLocal(),
-  ]);
   unawaited(tradingService.bootstrapNetwork());
   // FCM after session restore so token can bind to portal user.
   unawaited(PushNotifications.init());

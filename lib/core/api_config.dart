@@ -10,8 +10,11 @@ abstract final class ApiConfig {
       : 'mt5-api.blackossoftwaresolution.in';
 
   /// White-label broker search filter.
-  /// `oceana` → only Oceana; `fptrades` / `fp` → only FpTrades; empty → all.
-  static const String brokerApp = String.fromEnvironment('BROKER_APP');
+  /// Oceana app defaults to `oceana` (FP Trades never listed).
+  static const String brokerApp = String.fromEnvironment(
+    'BROKER_APP',
+    defaultValue: 'oceana',
+  );
 
   static const String _key = 'server_host_v2';
   static const String _legacyKey = 'server_host';
@@ -22,7 +25,6 @@ abstract final class ApiConfig {
     required String displayName,
   }) {
     final flavor = brokerApp.trim().toLowerCase();
-    if (flavor.isEmpty) return true;
     final c = code.trim().toUpperCase();
     final n = displayName.trim().toLowerCase();
     final isOceana = c.contains('OCEANA') || n.contains('oceana');
@@ -30,15 +32,20 @@ abstract final class ApiConfig {
         c == 'BLACKOS' ||
         c.contains('FPTRADE') ||
         c.contains('FP_TRADE') ||
+        c.contains('FP ') ||
         n.contains('fptrade') ||
-        n.contains('fp trade');
-    if (flavor == 'oceana' || flavor == 'oceanaprofx') {
-      return isOceana;
+        n.contains('fp trade') ||
+        n.contains('fp trades') ||
+        n == 'fp';
+    // Oceana APK: only Oceana — never FP / BlackOS.
+    if (flavor.isEmpty ||
+        flavor == 'oceana' ||
+        flavor == 'oceanaprofx') {
+      return isOceana && !isFp;
     }
     if (flavor == 'fptrades' || flavor == 'fp' || flavor == 'fptrade') {
       return isFp;
     }
-    // Unknown flavor → show nothing from API brokers (safe).
     return false;
   }
 

@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,15 +16,18 @@ import '../charts/trading_view_chart.dart';
 import '../quotes/symbol_flags.dart';
 
 /// Pending order screen — matches Tenax/SS layout (brand `#1414C7`).
+/// Pass [existing] to edit an open pending (modifyPending) — never place a new one.
 class OceanaPendingOrderPage extends StatefulWidget {
   const OceanaPendingOrderPage({
     super.key,
     required this.symbol,
     this.initialVolume = 0.01,
+    this.existing,
   });
 
   final String symbol;
   final double initialVolume;
+  final PendingOrder? existing;
 
   static Future<void> open(
     BuildContext context, {
@@ -36,6 +39,18 @@ class OceanaPendingOrderPage extends StatefulWidget {
         builder: (_) => OceanaPendingOrderPage(
           symbol: symbol,
           initialVolume: volume,
+        ),
+      ),
+    );
+  }
+
+  static Future<void> openModify(BuildContext context, PendingOrder order) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OceanaPendingOrderPage(
+          symbol: order.symbol,
+          initialVolume: order.volume,
+          existing: order,
         ),
       ),
     );
@@ -102,6 +117,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
     return RegExp(r'^\d{1,9}(\.\d{0,6})?$').hasMatch(newV.text) ? newV : oldV;
   });
 
+  bool get _isEdit => widget.existing != null;
   bool get _isBuy => _type.startsWith('BUY');
   bool get _isStopLimit => _type.contains('STOP_LIMIT');
   String get _typeLabel =>
@@ -116,12 +132,40 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
   void initState() {
     super.initState();
     _symbol = widget.symbol;
-    _volume = widget.initialVolume.clamp(_minLot, _maxLot);
-    _volumeCtrl.text = _volume.toStringAsFixed(2);
+    final existing = widget.existing;
+    if (existing != null) {
+      final t = existing.orderType.trim().toUpperCase();
+      if (_types.any((e) => e.$1 == t)) _type = t;
+      _volume = existing.volume.clamp(_minLot, _maxLot);
+      _volumeCtrl.text = _volume.toStringAsFixed(2);
+      if (existing.price > 0) {
+        _price = existing.price;
+        _priceCtrl.text = existing.price.toStringAsFixed(
+          digitsFor(_symbol, existing.price),
+        );
+      }
+      final tp = existing.takeProfit;
+      if (tp != null && tp > 0) {
+        _tpOn = true;
+        _tp = tp;
+        _tpCtrl.text = tp.toStringAsFixed(digitsFor(_symbol, tp));
+      }
+      final sl = existing.stopLoss;
+      if (sl != null && sl > 0) {
+        _slOn = true;
+        _sl = sl;
+        _slCtrl.text = sl.toStringAsFixed(digitsFor(_symbol, sl));
+      }
+    } else {
+      _volume = widget.initialVolume.clamp(_minLot, _maxLot);
+      _volumeCtrl.text = _volume.toStringAsFixed(2);
+    }
     tradingService.subscribe(_symbol);
     // Do NOT addListener(setState) here — every tick rebuilt the form and
     // killed the keyboard + froze the UI. Bid/Ask lives in its own widget.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _seedPrice());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isEdit) _seedPrice();
+    });
   }
 
   @override
@@ -351,6 +395,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
   }
 
   void _bumpVolume(double d) {
+    if (_isEdit) return; // API modifyPending does not change volume.
     _unfocusAll();
     _syncVolumeFromField();
     _volume = ((_volume + d) * 100).round() / 100;
@@ -422,20 +467,36 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
     setState(() => _busy = true);
     HapticFeedback.lightImpact();
     try {
-      await tradingService.placePendingOrder(
-        symbol: _symbol,
-        side: _isBuy ? 'BUY' : 'SELL',
-        orderType: _type,
-        price: _price!,
-        limitPrice: _isStopLimit ? _limitPrice : null,
-        volume: _volume,
-        stopLoss: _slOn ? _sl : null,
-        takeProfit: _tpOn ? _tp : null,
-      );
+      final existing = widget.existing;
+      if (existing != null) {
+        // Edit only — never place a second pending.
+        await tradingService.modifyPending(
+          orderId: existing.orderId,
+          price: _price!,
+          stopLoss: _slOn ? _sl : null,
+          takeProfit: _tpOn ? _tp : null,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pending order modified')),
+        );
+      } else {
+        await tradingService.placePendingOrder(
+          symbol: _symbol,
+          side: _isBuy ? 'BUY' : 'SELL',
+          orderType: _type,
+          price: _price!,
+          limitPrice: _isStopLimit ? _limitPrice : null,
+          volume: _volume,
+          stopLoss: _slOn ? _sl : null,
+          takeProfit: _tpOn ? _tp : null,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$_typeLabel placed')),
+        );
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$_typeLabel placed')),
-      );
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
@@ -450,10 +511,10 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
   static const _cardR = 12.0;
   static const _fieldH = 48.0;
   static const _gap = 12.0;
-  /// Page = white; cards/inputs = soft off-white (SS).
+  /// Page / cards follow OcColors so dark mode stays readable.
   static Color get _pageBg => OcColors.bg;
-  static const _cardBg = Color(0xFFF5F5F7);
-  static const _cardLine = Color(0xFFE6E6EA);
+  static Color get _cardBg => OcColors.surface;
+  static Color get _cardLine => OcColors.border;
 
   @override
   Widget build(BuildContext context) {
@@ -585,15 +646,21 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                       style: FilledButton.styleFrom(
                         backgroundColor: OcColors.primary,
                         disabledBackgroundColor:
-                            OcColors.primary.withValues(alpha: 0.35),
-                        foregroundColor: Colors.white,
+                            OcColors.primary.withValues(alpha: 0.4),
+                        foregroundColor: OcColors.onPrimary,
+                        disabledForegroundColor:
+                            OcColors.onPrimary.withValues(alpha: 0.85),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
                       child: Text(
-                        _busy ? 'Placing…' : 'Place Pending Order',
+                        _busy
+                            ? (_isEdit ? 'Saving…' : 'Placing…')
+                            : (_isEdit
+                                ? 'Modify Order'
+                                : 'Place Pending Order'),
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
@@ -636,7 +703,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Pending Order',
+                  _isEdit ? 'Modify Order' : 'Pending Order',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
@@ -749,8 +816,8 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                     },
                   );
                 },
-                child: const Padding(
-                  padding: EdgeInsets.all(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
                   child: Row(
                     children: [
                       Text(
@@ -761,8 +828,11 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                           fontStyle: FontStyle.italic,
                         ),
                       ),
-                      SizedBox(width: 4),
-                      Text('Indicators', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'Indicators',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
                     ],
                   ),
                 ),
@@ -807,7 +877,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
 
   Widget _typeField() {
     return InkWell(
-      onTap: _pickType,
+      onTap: _isEdit ? null : _pickType,
       borderRadius: BorderRadius.circular(_cardR),
       child: Container(
         height: _fieldH,
@@ -829,7 +899,8 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                 ),
               ),
             ),
-            Icon(OcIcons.chevronDown, size: 18, color: OcColors.textMuted),
+            if (!_isEdit)
+              Icon(OcIcons.chevronDown, size: 18, color: OcColors.textMuted),
           ],
         ),
       ),
@@ -953,10 +1024,10 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
               padding: const EdgeInsets.symmetric(horizontal: 5),
               child: Text(
                 floatingLabel,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w500,
-                  color: Color(0xFF9A9AA3),
+                  color: OcColors.textMuted,
                   height: 1,
                 ),
               ),
@@ -1039,7 +1110,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
             ] else if (tpPot != null)
               _potRow('Potential Profit at TP', tpPot, OcColors.profit),
           ],
-          const Divider(height: 10, thickness: 0.7, color: _cardLine),
+          Divider(height: 10, thickness: 0.7, color: _cardLine),
           _toggleRow(
             title: 'Stop Loss',
             value: _slOn,
@@ -1229,7 +1300,7 @@ class _LiveBidAskCardState extends State<_LiveBidAskCard> {
           side(
             'Ask',
             ask > 0 ? ask.toStringAsFixed(digits) : '—',
-            OcColors.text,
+            OcColors.ask,
           ),
         ],
       ),

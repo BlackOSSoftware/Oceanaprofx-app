@@ -14,11 +14,16 @@ class QuotePrice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final big = head.length >= 2 ? head.substring(head.length - 2) : head;
-    final prefix = head.length >= 2 ? head.substring(0, head.length - 2) : '';
+    // Last digit of the main price slightly larger; rest stay big & readable.
+    final big = head.isNotEmpty ? head.substring(head.length - 1) : '';
+    final prefix = head.length > 1 ? head.substring(0, head.length - 1) : '';
     const family = 'Roboto Condensed';
 
-    // Screenshot ratio: prefix medium, last-2 pips ~1.45× + bold, tail tiny superscript.
+    // Overall larger than before; last digit only ~12% bigger than the rest.
+    const baseSize = 18.0;
+    const lastSize = 20.5;
+    const tailSize = 11.5;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -34,36 +39,38 @@ class QuotePrice extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: family,
                   color: color,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+                  fontSize: baseSize,
+                  fontWeight: FontWeight.w600,
                   height: 1,
                 ),
               ),
-            Text(
-              big,
+            if (big.isNotEmpty)
+              Text(
+                big,
+                style: TextStyle(
+                  fontFamily: family,
+                  color: color,
+                  fontSize: lastSize,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+          ],
+        ),
+        if (tail.isNotEmpty)
+          Transform.translate(
+            offset: const Offset(0.5, -1),
+            child: Text(
+              tail,
               style: TextStyle(
                 fontFamily: family,
                 color: color,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
+                fontSize: tailSize,
+                fontWeight: FontWeight.w600,
                 height: 1,
               ),
             ),
-          ],
-        ),
-        Transform.translate(
-          offset: const Offset(0.5, -1),
-          child: Text(
-            tail,
-            style: TextStyle(
-              fontFamily: family,
-              color: color,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              height: 1,
-            ),
           ),
-        ),
       ],
     );
   }

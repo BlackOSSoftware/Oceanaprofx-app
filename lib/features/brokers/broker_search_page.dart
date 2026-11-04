@@ -1,7 +1,7 @@
-﻿import 'package:flutter/material.dart';
-import '../../ui/icons/oc_icons.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/trading_service.dart';
+import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
 import '../../ui/widgets/oc_primary_button.dart';
 import '../auth/welcome_page.dart';
@@ -58,7 +58,7 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text(
+            child: Text(
               'OK',
               style: TextStyle(
                 color: OcColors.primary,
@@ -71,6 +71,12 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
     );
   }
 
+  void _openWelcome() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => WelcomePage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final empty = _query.text.trim().isEmpty && _results.isEmpty;
@@ -78,16 +84,17 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
     return Scaffold(
       backgroundColor: OcColors.bg,
       appBar: AppBar(
+        backgroundColor: OcColors.bg,
         leading: IconButton(
           onPressed: () => Navigator.maybePop(context),
           icon: Icon(OcIcons.chevronLeft),
         ),
-        title: Text('Broker'),
+        title: const Text('Broker'),
       ),
       body: Column(
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
               controller: _query,
               onChanged: _search,
@@ -105,25 +112,26 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
           Expanded(
             child: empty
                 ? Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 28),
                     child: Column(
                       children: [
-                        Spacer(),
+                        const Spacer(),
                         Icon(
                           OcIcons.listFilter,
                           size: 72,
                           color: OcColors.textMuted,
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         Text(
                           'Use search to find a company',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
+                            color: OcColors.text,
                           ),
                         ),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         Text(
                           'Be careful: some companies may not be regulated. '
                           'Oceana may not possess complete and updated information '
@@ -134,45 +142,61 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
                             height: 1.4,
                           ),
                         ),
-                        Spacer(flex: 2),
+                        const Spacer(flex: 2),
                       ],
                     ),
                   )
                 : _loading
                     ? const Center(child: CircularProgressIndicator())
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _results.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final b = _results[i];
-                          return Material(
-                            color: OcColors.surface,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: BorderSide(color: OcColors.border),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: ListTile(
-                              title: Text(
-                                b.displayName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
+                    : _results.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No brokers found',
+                              style: TextStyle(
+                                color: OcColors.textSecondary,
+                                fontWeight: FontWeight.w600,
                               ),
-                              subtitle: Text(b.subtitle),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => WelcomePage(),
-                                  ),
-                                );
-                              },
                             ),
-                          );
-                        },
-                      ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _results.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, i) {
+                              final b = _results[i];
+                              return Material(
+                                color: OcColors.surface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: OcColors.border),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: ListTile(
+                                  leading: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: ColoredBox(
+                                      color: const Color(0xFFF5F5F7),
+                                      child: Image.asset(
+                                        'assets/brand/oceana_mark_v3.png',
+                                        width: 40,
+                                        height: 40,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    b.displayName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Text(b.subtitle),
+                                  onTap: _openWelcome,
+                                ),
+                              );
+                            },
+                          ),
           ),
           Padding(
             padding: EdgeInsets.fromLTRB(
