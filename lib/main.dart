@@ -7,17 +7,19 @@ import 'app/oceana_app.dart';
 import 'core/api_config.dart';
 import 'core/push_notifications.dart';
 import 'core/theme_controller.dart';
+import 'core/trade_sound.dart';
 import 'core/trading_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Session must be on disk BEFORE first frame — otherwise OceanaShell
-  // races restoreLocal and pushes BrokerSearch even when still logged in.
+  // races restoreLocal and pushes Login even when still logged in.
   await Future.wait([
     ApiConfig.load(),
     tradingService.restoreLocal(),
     loadMtThemePreference(),
   ]);
+  unawaited(TradeSound.warmUp());
   runApp(const OceanaApp());
   unawaited(_bootstrapAfterFirstFrame());
 }

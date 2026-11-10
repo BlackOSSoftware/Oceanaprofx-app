@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
+import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -73,6 +75,19 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
   static const _minLot = 0.01;
   static const _maxLot = 100.0;
   static const _lotStep = 0.01;
+
+  static const _lotQuickDeltas = <double>[
+    -1,
+    -0.5,
+    -0.1,
+    -0.05,
+    -0.01,
+    0.01,
+    0.05,
+    0.1,
+    0.5,
+    1,
+  ];
 
   late String _symbol;
   String _type = 'BUY_LIMIT';
@@ -405,6 +420,84 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
     setState(() {});
   }
 
+  String _fmtLotDelta(double d) {
+    final abs = d.abs();
+    final body = abs == abs.roundToDouble()
+        ? abs.toStringAsFixed(0)
+        : abs
+            .toStringAsFixed(2)
+            .replaceFirst(RegExp(r'0+$'), '')
+            .replaceFirst(RegExp(r'\.$'), '');
+    return d < 0 ? '-$body' : '+$body';
+  }
+
+  bool _canApplyLotDelta(double delta) {
+    if (_isEdit) return false;
+    final typed = double.tryParse(_volumeCtrl.text.trim()) ?? _volume;
+    if (delta < 0) return typed > _minLot;
+    return typed < _maxLot;
+  }
+
+  Widget _lotQuickRow() {
+    return SizedBox(
+      height: 32,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _lotQuickDeltas.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (context, i) {
+          final delta = _lotQuickDeltas[i];
+          final neg = delta < 0;
+          final enabled = _canApplyLotDelta(delta);
+          // Soft pastel — not deposit/withdraw button colors.
+          final bg = neg
+              ? (OcColors.isDark
+                  ? const Color(0xFF3A181C)
+                  : const Color(0xFFFFEBEE))
+              : (OcColors.isDark
+                  ? const Color(0xFF16301C)
+                  : const Color(0xFFE8F5E9));
+          final fg = neg
+              ? (OcColors.isDark
+                  ? const Color(0xFFFF8A8A)
+                  : const Color(0xFFC62828))
+              : (OcColors.isDark
+                  ? const Color(0xFF8FD99A)
+                  : const Color(0xFF2E7D32));
+          return Material(
+            color: enabled ? bg : OcColors.bg,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              onTap: enabled ? () => _bumpVolume(delta) : null,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: enabled
+                        ? fg.withValues(alpha: 0.28)
+                        : OcColors.border,
+                  ),
+                ),
+                child: Text(
+                  _fmtLotDelta(delta),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                    color: enabled ? fg : OcColors.textMuted,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _bumpPrice(double dir) {
     final base = _price ?? (_isBuy ? (_q?.ask ?? 0) : (_q?.bid ?? 0));
     if (base <= 0) return;
@@ -476,6 +569,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
           stopLoss: _slOn ? _sl : null,
           takeProfit: _tpOn ? _tp : null,
         );
+        unawaited(TradeSound.ok());
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Pending order modified')),
@@ -491,6 +585,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
           stopLoss: _slOn ? _sl : null,
           takeProfit: _tpOn ? _tp : null,
         );
+        unawaited(TradeSound.ok());
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$_typeLabel placed')),
@@ -499,6 +594,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
       if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
+      unawaited(TradeSound.error());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
@@ -572,6 +668,8 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                     keyboard:
                         const TextInputType.numberWithOptions(decimal: true),
                   ),
+                  const SizedBox(height: 8),
+                  _lotQuickRow(),
                   const SizedBox(height: 14),
                   _sectionLabel('When Price Is'),
                   const SizedBox(height: 6),

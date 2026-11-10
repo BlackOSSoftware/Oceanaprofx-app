@@ -7,7 +7,6 @@ import '../../ui/theme/oceana_colors.dart';
 import '../../ui/widgets/oc_badge.dart';
 import '../../ui/widgets/oc_primary_button.dart';
 import 'login_page.dart';
-import 'welcome_page.dart';
 
 /// After email login: pick which trading account to activate.
 class AccountPickerPage extends StatefulWidget {
@@ -360,11 +359,8 @@ class _SwitchPortalAccountsSheetState extends State<_SwitchPortalAccountsSheet> 
 
   Future<void> _addNew() async {
     Navigator.pop(context);
+    // Shell opens Login directly after logout.
     await tradingService.logout();
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => WelcomePage()),
-    );
   }
 
   @override

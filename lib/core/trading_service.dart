@@ -739,6 +739,7 @@ class TradingService extends ChangeNotifier {
   WebSocket? _ws;
   Timer? _reconnect;
   Timer? _marketStatusTimer;
+  Timer? _sessionWatchTimer;
   bool _closed = false;
   // WebSocket stays OFF while logged out; it connects only on login.
   bool _wsEnabled = false;
@@ -868,10 +869,16 @@ class TradingService extends ChangeNotifier {
       } catch (_) {}
     }
     if (session != null) {
+      // Expired access JWT → refresh or Logout→Login (don't stay half-in).
+      if (!await ensureFreshSession()) {
+        notifyListeners();
+        return;
+      }
       await _validateSession();
       if (session != null) {
         if (session!.source == 'server') unawaited(_rememberFp());
         connectWs();
+        _startSessionWatch();
         unawaited(refreshAccount());
         unawaited(refreshWatchlist());
       }
@@ -883,6 +890,7 @@ class TradingService extends ChangeNotifier {
         await activatePrimaryAccount();
       } catch (_) {}
     }
+    if (session != null) _startSessionWatch();
     notifyListeners();
   }
 
@@ -989,6 +997,7 @@ class TradingService extends ChangeNotifier {
     // WebSocket connects only now that we are logged in.
     connectWs();
     _identify();
+    _startSessionWatch();
     unawaited(refreshAccount());
     unawaited(refreshWatchlist());
   }
@@ -1904,6 +1913,57 @@ class TradingService extends ChangeNotifier {
 
   Future<bool>? _refreshing;
 
+  /// JWT `exp` check (client-side). Skew = clock drift buffer.
+  static bool isJwtExpired(
+    String token, {
+    Duration skew = const Duration(seconds: 60),
+  }) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+      final normalized = base64Url.normalize(parts[1]);
+      final map =
+          jsonDecode(utf8.decode(base64Url.decode(normalized)))
+              as Map<String, dynamic>;
+      final exp = map['exp'];
+      if (exp is! num) return true;
+      final expiry = DateTime.fromMillisecondsSinceEpoch(
+        exp.toInt() * 1000,
+        isUtc: true,
+      );
+      return DateTime.now().toUtc().isAfter(expiry.subtract(skew));
+    } catch (_) {
+      return true;
+    }
+  }
+
+  void _startSessionWatch() {
+    _sessionWatchTimer?.cancel();
+    _sessionWatchTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      unawaited(ensureFreshSession());
+    });
+  }
+
+  void _stopSessionWatch() {
+    _sessionWatchTimer?.cancel();
+    _sessionWatchTimer = null;
+  }
+
+  /// Access JWT expire ho to refresh; refresh fail / missing → full logout
+  /// (Login screen). Trade / account calls se pehle bhi use karo.
+  Future<bool> ensureFreshSession() async {
+    final s = session;
+    if (s == null) return false;
+    if (!isJwtExpired(s.token)) return true;
+    if (s.refreshToken.isEmpty) {
+      await logout();
+      return false;
+    }
+    if (await _refreshSession()) return true;
+    await logout();
+    return false;
+  }
+
   /// Access token expire (401) hone pe refresh token se naya
   /// session lo. Parallel requests ek hi refresh share karte hain.
   Future<bool> _refreshSession() {
@@ -1945,38 +2005,37 @@ class TradingService extends ChangeNotifier {
     }
   }
 
-  /// [byUser] = user ne khud logout dabaya (token expire wala nahi).
-  /// User logout = koi account active nahi -> logged-out screens.
-  /// Token-expire wala logout ([byUser] false) active account rakhta hai
-  /// taaki saved password se dobara login ho sake.
-  Future<void> logout({bool byUser = true}) async {
+  /// Full logout — manual ya token-expire, dono cases me portal + trade
+  /// session clear. Shell Login screen kholta hai; silent re-login band.
+  /// Email prefill [rememberEmailLogin] se Login form pe rehta hai.
+  Future<void> logout() async {
     final wasMq = session?.source == 'mq';
     session = null;
+    _stopSessionWatch();
     // Logged out: WebSocket band - koi live feed connection nahi.
     disconnectWs();
     _resetTradingState();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('session');
-    if (byUser) {
-      loggedOutByUser = true;
-      userPortal = null;
-      linkedAccounts = const [];
-      // Saved FP cards belong to previous user — clear so next email
-      // never sees them on Dashboard / account switcher.
-      fpAccounts = const [];
-      userProfile = null;
-      myKyc = null;
-      await prefs.remove(_userPortalKey);
-      await prefs.remove(_fpAccountsKey);
-      await prefs.remove(_linkedAccountsKey);
-      await prefs.remove(_linkedAccountsEmailKey);
-      if (wasMq || activeSource == 'mq') {
-        mqAccount = null;
-        await prefs.remove('mq_active_account');
-      }
-      activeSource = '';
-      await prefs.setString('active_source', activeSource);
+    // Always clear portal too (incl. token-expire) so auth gate → Login.
+    loggedOutByUser = true;
+    userPortal = null;
+    linkedAccounts = const [];
+    // Saved FP cards belong to previous user — clear so next email
+    // never sees them on Dashboard / account switcher.
+    fpAccounts = const [];
+    userProfile = null;
+    myKyc = null;
+    await prefs.remove(_userPortalKey);
+    await prefs.remove(_fpAccountsKey);
+    await prefs.remove(_linkedAccountsKey);
+    await prefs.remove(_linkedAccountsEmailKey);
+    if (wasMq || activeSource == 'mq') {
+      mqAccount = null;
+      await prefs.remove('mq_active_account');
     }
+    activeSource = '';
+    await prefs.setString('active_source', activeSource);
     notifyListeners();
   }
 
@@ -2204,26 +2263,34 @@ class TradingService extends ChangeNotifier {
       if (resp.statusCode >= 400) {
         // Access token expire/invalid: ek baar refresh token se
         // chup chaap naya session lo aur request dobara bhejo.
-        // Refresh bhi fail ho jaye to pura force-logout — app
-        // aadhi logged-in haalat me nahi atkega.
-        if (resp.statusCode == 401 &&
-            auth &&
-            !retried &&
-            session != null &&
-            !path.contains('/account-auth/')) {
-          if (await _refreshSession()) {
-            return _request(
-              method,
-              path,
-              body: body,
-              query: query,
-              auth: auth,
-              userAuth: userAuth,
-              retried: true,
-            );
+        // Refresh bhi fail → full logout → Login screen.
+        // Skip only login/refresh endpoints (loop na bane). /me pe
+        // pehle logout skip ho jata tha — isi se expired session
+        // trade screen pe atak jati thi.
+        final isAuthBootstrap = path.contains('/account-auth/login') ||
+            path.contains('/account-auth/refresh') ||
+            path.contains('/auth/login');
+        if (resp.statusCode == 401 && !retried && !isAuthBootstrap) {
+          if (auth && session != null) {
+            if (await _refreshSession()) {
+              return _request(
+                method,
+                path,
+                body: body,
+                query: query,
+                auth: auth,
+                userAuth: userAuth,
+                retried: true,
+              );
+            }
+            await logout();
+            throw ApiException('Session expired. Please login again');
           }
-          await logout(byUser: false);
-          throw ApiException('Session expired. Please login again');
+          // Portal JWT expire (userAuth) — bhi Login pe bhejo.
+          if (userAuth && hasUserPortal) {
+            await logout();
+            throw ApiException('Session expired. Please login again');
+          }
         }
         final msg = data['message'] as String?;
         final detail = data['error'] as String?;
@@ -2247,6 +2314,7 @@ class TradingService extends ChangeNotifier {
 
   Future<void> refreshAccount() async {
     if (!await ensureSession()) return;
+    if (!await ensureFreshSession()) return;
     try {
       final res = await _request('GET', '/v1/trade/account');
       final data = res['data'];
@@ -2387,6 +2455,9 @@ class TradingService extends ChangeNotifier {
     double? stopLoss,
     double? takeProfit,
   }) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     final res = await _request(
       'POST',
       '/v1/trade/market',
@@ -2415,6 +2486,9 @@ class TradingService extends ChangeNotifier {
     String expireType = 'GTC',
     DateTime? expireAt,
   }) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     final res = await _request(
       'POST',
       '/v1/trade/pending',
@@ -2436,6 +2510,9 @@ class TradingService extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> closePosition(String positionId) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     final res = await _request(
       'POST',
       '/v1/trade/position/close',
@@ -2453,6 +2530,9 @@ class TradingService extends ChangeNotifier {
     double? stopLoss,
     double? takeProfit,
   }) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     await _request(
       'PATCH',
       '/v1/trade/position/modify',
@@ -2481,6 +2561,9 @@ class TradingService extends ChangeNotifier {
     double? stopLoss,
     double? takeProfit,
   }) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     await _request(
       'PATCH',
       '/v1/trade/pending/modify',
@@ -2512,6 +2595,9 @@ class TradingService extends ChangeNotifier {
   }
 
   Future<void> cancelPending(String orderId) async {
+    if (!await ensureFreshSession()) {
+      throw ApiException('Session expired. Please login again');
+    }
     await _request(
       'POST',
       '/v1/trade/pending/cancel',

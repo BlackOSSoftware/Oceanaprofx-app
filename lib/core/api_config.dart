@@ -49,10 +49,6 @@ abstract final class ApiConfig {
     return false;
   }
 
-  /// Default demo account used for auto-login (seeded in the backend).
-  static const String defaultAccountNumber = '114347705';
-  static const String defaultPassword = 'Trader@123';
-
   /// UI server label from broker brand (Oceana / FP / …). Never API host.
   /// Demo → "{Brand}-Demo", live → "{Brand}" (no "-Live" badge text).
   static String serverNameFor(

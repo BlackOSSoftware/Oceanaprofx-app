@@ -84,6 +84,8 @@ flutter:
     - assets/brand/oceana_mark_v3.png
     - assets/brand/oceana_launcher.png
     - assets/icons/quote_mark.png
+    - assets/sounds/success.mp3
+    - assets/sounds/error.mp3
 
   fonts:
     - family: Roboto

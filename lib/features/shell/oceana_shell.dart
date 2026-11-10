@@ -4,8 +4,7 @@ import '../../core/shell_controller.dart';
 import '../../core/trading_service.dart';
 import '../../ui/theme/oceana_colors.dart';
 import '../../ui/widgets/oc_bottom_nav.dart';
-import '../auth/welcome_page.dart';
-import '../brokers/broker_search_page.dart';
+import '../auth/login_page.dart';
 import '../charts/oceana_charts_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../more/more_screen.dart';
@@ -65,7 +64,7 @@ class _OceanaShellState extends State<OceanaShell> {
     final next = _stamp();
     final has = tradingService.hasAnyAccount;
     if (_hadAccount && !has) {
-      // Explicit logout → allow Broker / Welcome again.
+      // Explicit logout → show Login again.
       _welcomeShown = false;
     }
     _hadAccount = has;
@@ -89,43 +88,45 @@ class _OceanaShellState extends State<OceanaShell> {
         return;
       }
 
-      if (tradingService.hasUserPortal) {
+      // Portal JWT still around (cold start) — try activate once; if it
+      // fails or user logged out, fall through to Login.
+      if (tradingService.hasUserPortal && !tradingService.loggedOutByUser) {
         if (_welcomeShown) return;
         _welcomeShown = true;
-        _hadAccount = true;
         try {
-          if (!tradingService.isLoggedIn) {
-            await tradingService.activatePrimaryAccount();
-          }
-        } catch (_) {
-          // Portal session without a tradable account — stay on shell.
+          await tradingService.activatePrimaryAccount();
+        } catch (_) {}
+        if (tradingService.isLoggedIn || tradingService.mqLoggedIn) {
+          _hadAccount = true;
+          if (mounted) setState(() {});
+          return;
         }
-        if (mounted) setState(() {});
-        return;
+        // Activate failed — clear flag so Login can show below.
+        _welcomeShown = false;
       }
 
       if (_welcomeShown) return;
       _welcomeShown = true;
+      // Oceana white-label: skip Find Broker / Welcome — open Login directly.
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => const BrokerSearchPage(),
-        ),
-      );
-      if (!mounted) return;
-      if (!tradingService.isLoggedIn && !tradingService.hasUserPortal) {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => WelcomePage(
+          fullscreenDialog: true,
+          builder: (_) => PopScope(
+            canPop: false,
+            child: LoginPage(
               onAuthenticated: () {
                 if (mounted) setState(() {});
               },
             ),
           ),
-        );
-      }
+        ),
+      );
       // After auth gate closes, allow re-open only if still logged out.
       if (!tradingService.hasAnyAccount) {
         _welcomeShown = false;
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _maybeWelcome());
+        }
       }
     } finally {
       _welcomeCheckRunning = false;

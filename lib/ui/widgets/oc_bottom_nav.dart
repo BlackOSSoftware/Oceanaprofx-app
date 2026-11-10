@@ -16,7 +16,7 @@ class OcBottomNav extends StatelessWidget {
   final ValueChanged<OcNavTab> onSelect;
 
   /// Floating pill height (icon + label + inner padding), excluding outer inset.
-  static const double pillHeight = 58;
+  static const double pillHeight = 56;
 
   /// Body bottom gap so content clears the floating nav (`extendBody: true`).
   static double bodyClearance(BuildContext context) {
@@ -26,12 +26,13 @@ class OcBottomNav extends StatelessWidget {
     return pillHeight + outerBottom + inset;
   }
 
-  static const _items = <(OcNavTab, IconData, String)>[
-    (OcNavTab.quote, OcIcons.lineChart, 'Quote'),
-    (OcNavTab.chart, OcIcons.barChart3, 'Chart'),
-    (OcNavTab.trade, OcIcons.candlestickChart, 'Trade'),
-    (OcNavTab.dashboard, OcIcons.wallet, 'Dashboard'),
-    (OcNavTab.more, OcIcons.settings, 'More'),
+  static const _items = <(OcNavTab, IconData, String, int)>[
+    (OcNavTab.quote, OcIcons.lineChart, 'Quote', 10),
+    (OcNavTab.chart, OcIcons.barChart3, 'Chart', 10),
+    (OcNavTab.trade, OcIcons.candlestickChart, 'Trade', 10),
+    // Extra flex so "Dashboard" label + active chip fully fit.
+    (OcNavTab.dashboard, OcIcons.wallet, 'Dashboard', 14),
+    (OcNavTab.more, OcIcons.settings, 'More', 10),
   ];
 
   @override
@@ -39,31 +40,25 @@ class OcBottomNav extends StatelessWidget {
     final bottom = MediaQuery.paddingOf(context).bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 0, 12, 8 + (bottom > 0 ? bottom : 6)),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: OcColors.surface,
-          borderRadius: BorderRadius.circular(40),
-          border: Border.all(color: OcColors.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: OcColors.isDark ? 0.35 : 0.10),
-              blurRadius: 22,
-              spreadRadius: 0,
-              offset: const Offset(0, 6),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: OcColors.isDark ? 0.2 : 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(6, 7, 6, 7),
+      child: Material(
+        color: OcColors.surface,
+        elevation: 8,
+        shadowColor: Colors.black.withValues(alpha: OcColors.isDark ? 0.45 : 0.18),
+        borderRadius: BorderRadius.circular(32),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          height: pillHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: OcColors.border),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               for (final item in _items)
                 Expanded(
+                  flex: item.$4,
                   child: _NavItem(
                     icon: item.$2,
                     label: item.$3,
@@ -94,53 +89,60 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        margin: const EdgeInsets.symmetric(horizontal: 1),
-        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 2),
-        decoration: BoxDecoration(
-          color: selected ? OcColors.primarySoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(26),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: selected ? OcColors.primary : Colors.transparent,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                icon,
-                size: 15,
-                color: selected ? Colors.white : OcColors.navInactive,
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            decoration: BoxDecoration(
+              color: selected ? OcColors.primarySoft : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 3),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? OcColors.primary : OcColors.navInactive,
-                  height: 1.05,
-                  letterSpacing: -0.15,
+            child: Column(
+              mainAxisSize: MainAxisSize.max,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: selected ? OcColors.primary : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    icon,
+                    size: 14,
+                    color: selected ? Colors.white : OcColors.navInactive,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? OcColors.primary : OcColors.navInactive,
+                      height: 1.0,
+                      letterSpacing: -0.15,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

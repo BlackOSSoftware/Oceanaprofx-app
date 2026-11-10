@@ -1,12 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
 import '../../core/shell_controller.dart';
+import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
-import 'chart_indicators.dart';
 import 'chart_models.dart';
 import 'oceana_chart_style_sheet.dart';
 import 'oceana_indicator_sheet.dart';
@@ -15,7 +17,7 @@ import 'oceana_timeframe_sheet.dart';
 import 'trading_view_chart.dart';
 import '../trade/oceana_pending_order_page.dart';
 
-/// Oceana Chart tab — matches Tenax/SS layout + TradingView chart.
+/// Oceana Chart tab — TradingView Lightweight Charts + broker live prices.
 class OceanaChartsScreen extends StatefulWidget {
   const OceanaChartsScreen({
     super.key,
@@ -51,10 +53,19 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   static const _maxLot = 100.0;
   static const _lotStep = 0.01;
 
-  List<String> get _studies => [
-        for (final i in ChartIndicator.catalog)
-          if (_activeIndicators.contains(i.id)) i.study,
-      ];
+  /// Quick lot deltas under quantity (minus → plus).
+  static const _lotQuickDeltas = <double>[
+    -1,
+    -0.5,
+    -0.1,
+    -0.05,
+    -0.01,
+    0.01,
+    0.05,
+    0.1,
+    0.5,
+    1,
+  ];
 
   @override
   void initState() {
@@ -92,6 +103,24 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     _volumeCtrl.selection = TextSelection.collapsed(
       offset: _volumeCtrl.text.length,
     );
+  }
+
+  String _fmtLotDelta(double d) {
+    final abs = d.abs();
+    final body = abs == abs.roundToDouble()
+        ? abs.toStringAsFixed(0)
+        : abs.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '').replaceFirst(
+              RegExp(r'\.$'),
+              '',
+            );
+    return d < 0 ? '-$body' : '+$body';
+  }
+
+  bool _canApplyLotDelta(double delta) {
+    final typed = double.tryParse(_volumeCtrl.text.trim()) ?? _volume;
+    final next = ((typed + delta) * 100).round() / 100;
+    if (delta < 0) return typed > _minLot && next >= _minLot - 1e-9;
+    return typed < _maxLot;
   }
 
   void _syncVolumeFromField({bool showError = false}) {
@@ -142,6 +171,15 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     setState(() => _tf = ChartTimeframes.of(picked));
   }
 
+  Future<void> _pickChartStyle() async {
+    final picked = await showOceanaChartStyleSheet(
+      context,
+      selected: _chartStyle,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _chartStyle = picked);
+  }
+
   Future<void> _pickIndicators() async {
     await showOceanaIndicatorsSheet(
       context,
@@ -154,15 +192,6 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
         });
       },
     );
-  }
-
-  Future<void> _pickChartStyle() async {
-    final picked = await showOceanaChartStyleSheet(
-      context,
-      selected: _chartStyle,
-    );
-    if (picked == null || !mounted) return;
-    setState(() => _chartStyle = picked);
   }
 
   Future<void> _pickSymbol() async {
@@ -200,6 +229,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
         side: side,
         volume: _volume,
       );
+      unawaited(TradeSound.ok());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -210,6 +240,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
         ),
       );
     } catch (e) {
+      unawaited(TradeSound.error());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
@@ -371,6 +402,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
                 child: RepaintBoundary(child: _chartBody()),
               ),
               _qtyRow(),
+              _lotQuickRow(),
               _LiveBuySell(
                 symbol: widget.symbol,
                 active: widget.active,
@@ -480,6 +512,79 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
               onTap: () => _bumpVolume(_lotStep),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _lotQuickRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: SizedBox(
+        height: 30,
+        child: AnimatedBuilder(
+          animation: _volumeCtrl,
+          builder: (context, _) {
+            return ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _lotQuickDeltas.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (context, i) {
+                final delta = _lotQuickDeltas[i];
+                final neg = delta < 0;
+                final enabled = _canApplyLotDelta(delta);
+                // Soft pastel — not deposit/withdraw button colors.
+                final bg = neg
+                    ? (OcColors.isDark
+                        ? const Color(0xFF3A181C)
+                        : const Color(0xFFFFEBEE))
+                    : (OcColors.isDark
+                        ? const Color(0xFF16301C)
+                        : const Color(0xFFE8F5E9));
+                final fg = neg
+                    ? (OcColors.isDark
+                        ? const Color(0xFFFF8A8A)
+                        : const Color(0xFFC62828))
+                    : (OcColors.isDark
+                        ? const Color(0xFF8FD99A)
+                        : const Color(0xFF2E7D32));
+                return Material(
+                  color: enabled ? bg : OcColors.bg,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    onTap: enabled
+                        ? () {
+                            _volumeFocus.unfocus();
+                            _bumpVolume(delta);
+                          }
+                        : null,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: enabled
+                              ? fg.withValues(alpha: 0.28)
+                              : OcColors.border,
+                        ),
+                      ),
+                      child: Text(
+                        _fmtLotDelta(delta),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                          color: enabled ? fg : OcColors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
       ),
     );
@@ -649,12 +754,14 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
       clipBehavior: Clip.antiAlias,
       child: TradingViewChart(
         key: ValueKey(
-          '${widget.symbol}|${_tf.code}|$_chartStyle|${_studies.join(',')}|${OcColors.isDark ? 'd' : 'l'}',
+          '${widget.symbol}|${_tf.code}|$_chartStyle|${OcColors.isDark ? 'd' : 'l'}',
         ),
         symbol: widget.symbol,
+        timeframe: _tf.code,
         interval: TradingViewChart.intervalFromCode(_tf.code),
         style: _chartStyle,
-        studies: _studies,
+        studies: _activeIndicators.toList()..sort(),
+        active: widget.active,
       ),
     );
   }
@@ -1023,9 +1130,9 @@ class _LiveBuySellState extends State<_LiveBuySell> {
     final canTap = !widget.busy;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: SizedBox(
-        height: 42,
+        height: 52,
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -1041,7 +1148,7 @@ class _LiveBuySellState extends State<_LiveBuySell> {
                     onTap: canTap ? () => widget.onTrade('SELL') : null,
                   ),
                 ),
-                const SizedBox(width: 5),
+                const SizedBox(width: 10),
                 Expanded(
                   child: _sideBtn(
                     label: 'BUY',
@@ -1058,7 +1165,7 @@ class _LiveBuySellState extends State<_LiveBuySell> {
               child: Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: 11,
-                  vertical: 3,
+                  vertical: 4,
                 ),
                 decoration: BoxDecoration(
                   color: OcColors.surface,
@@ -1096,15 +1203,15 @@ class _LiveBuySellState extends State<_LiveBuySell> {
     required VoidCallback? onTap,
   }) {
     return SizedBox(
-      height: 42,
+      height: 52,
       child: Material(
         color: onTap == null ? color.withValues(alpha: 0.45) : color,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(6),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(6),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -1113,17 +1220,18 @@ class _LiveBuySellState extends State<_LiveBuySell> {
                   label,
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                    height: 1.05,
+                    fontSize: 11,
+                    height: 1.1,
                     color: Colors.white,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   price > 0 ? price.toStringAsFixed(digits) : '—',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    height: 1.05,
+                    fontSize: 14,
+                    height: 1.1,
                     color: Colors.white,
                   ),
                 ),
@@ -1137,7 +1245,7 @@ class _LiveBuySellState extends State<_LiveBuySell> {
 }
 
 class _FourDots extends StatelessWidget {
-  _FourDots({required this.size});
+  const _FourDots({required this.size});
   final double size;
 
   @override

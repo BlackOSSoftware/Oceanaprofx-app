@@ -5,11 +5,10 @@ import '../../core/trading_service.dart';
 import '../../ui/theme/oceana_colors.dart';
 import '../../ui/widgets/oc_brand_mark.dart';
 import '../../ui/widgets/oc_primary_button.dart';
-import '../brokers/broker_search_page.dart';
 import 'login_page.dart';
 
 class WelcomePage extends StatelessWidget {
-  WelcomePage({super.key, this.onAuthenticated});
+  const WelcomePage({super.key, this.onAuthenticated});
 
   final VoidCallback? onAuthenticated;
 
@@ -19,13 +18,13 @@ class WelcomePage extends StatelessWidget {
       backgroundColor: OcColors.surface,
       body: SafeArea(
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 28),
+          padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Column(
             children: [
-              Spacer(flex: 2),
+              const Spacer(flex: 2),
               const OcBrandMark(height: 110, maxWidth: 300),
-              SizedBox(height: 28),
-              Text(
+              const SizedBox(height: 28),
+              const Text(
                 'All your Trade.\nOne secure place',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -63,27 +62,9 @@ class WelcomePage extends StatelessWidget {
                   );
                 },
               ),
-              SizedBox(height: 18),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                      builder: (_) => BrokerSearchPage(),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Back to search',
-                  style: TextStyle(
-                    color: OcColors.primary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              Spacer(),
+              const Spacer(),
               Padding(
-                padding: EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Text.rich(
                   TextSpan(
                     style: TextStyle(

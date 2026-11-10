@@ -6,7 +6,6 @@ import '../../core/push_notifications.dart';
 import '../../core/theme_controller.dart';
 import '../../core/trading_service.dart';
 import '../../features/auth/account_picker_page.dart';
-import '../../features/auth/welcome_page.dart';
 import '../../features/dashboard/oceana_internal_transfer_page.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -229,8 +228,9 @@ class _MoreScreenState extends State<MoreScreen> {
                   _MenuTile(
                     icon: OcIcons.layoutDashboard,
                     title: 'IB Dashboard',
-                    comingSoon: true,
-                    onTap: () {},
+                    onTap: () => _openPortalUrl(
+                      'https://user.oceanaprofx.com/dashboard/referal',
+                    ),
                   ),
                   _MenuTile(
                     icon: OcIcons.arrowLeftRight,
@@ -309,13 +309,8 @@ class _MoreScreenState extends State<MoreScreen> {
                     title: 'Logout',
                     titleColor: OcColors.danger,
                     onTap: () async {
+                      // Shell opens Login directly after logout.
                       await tradingService.logout();
-                      if (!context.mounted) return;
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => WelcomePage(),
-                        ),
-                      );
                     },
                     showDivider: false,
                   ),
@@ -817,8 +812,8 @@ class _QuickActions extends StatelessWidget {
         tile(
           icon: OcIcons.arrowUpRight,
           label: 'Withdraw',
-          bg: OcColors.orangeBg,
-          fg: OcColors.orangeFg,
+          bg: OcColors.withdrawBg,
+          fg: OcColors.withdrawFg,
           onTap: onWithdraw,
         ),
         const SizedBox(width: 10),

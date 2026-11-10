@@ -4,7 +4,7 @@ import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
 import 'chart_indicators.dart';
 
-/// Screenshot Indicators panel — floats over chart (search + SCRIPT NAME).
+/// TradingView-style Indicators panel — search + toggle list over chart.
 Future<void> showOceanaIndicatorsSheet(
   BuildContext context, {
   required Set<String> activeIds,
@@ -54,7 +54,10 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
     if (q.isEmpty) return ChartIndicator.catalog;
     return [
       for (final i in ChartIndicator.catalog)
-        if (i.label.toLowerCase().contains(q)) i,
+        if (i.label.toLowerCase().contains(q) ||
+            i.subtitle.toLowerCase().contains(q) ||
+            i.study.toLowerCase().contains(q))
+          i,
     ];
   }
 
@@ -76,8 +79,7 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
       child: Align(
         alignment: Alignment.topCenter,
         child: Padding(
-          // Sit over chart; keep trade panel + nav visible (SS).
-          padding: EdgeInsets.fromLTRB(10, 100, 10, 0),
+          padding: const EdgeInsets.fromLTRB(10, 100, 10, 0),
           child: Material(
             color: OcColors.surface,
             elevation: 10,
@@ -85,13 +87,13 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
             borderRadius: BorderRadius.circular(16),
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
-              height: size.height * 0.46,
+              height: size.height * 0.5,
               width: double.infinity,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 4, 6),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 4, 6),
                     child: Row(
                       children: [
                         Expanded(
@@ -104,6 +106,20 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
                             ),
                           ),
                         ),
+                        if (_active.isNotEmpty)
+                          TextButton(
+                            onPressed: () {
+                              setState(() => _active.clear());
+                              widget.onChanged({});
+                            },
+                            child: Text(
+                              'Clear',
+                              style: TextStyle(
+                                color: OcColors.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         IconButton(
                           onPressed: () => Navigator.pop(context),
                           icon: Icon(OcIcons.x, size: 22),
@@ -113,7 +129,7 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
                     ),
                   ),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: TextField(
                       controller: _search,
                       onChanged: (v) => setState(() => _query = v),
@@ -130,8 +146,7 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
                         ),
                         filled: true,
                         fillColor: OcColors.bg,
-                        contentPadding:
-                            EdgeInsets.symmetric(vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,
@@ -140,7 +155,7 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
                     ),
                   ),
                   Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                     child: Text(
                       'SCRIPT NAME',
                       style: TextStyle(
@@ -163,16 +178,47 @@ class _IndicatorsOverlayState extends State<_IndicatorsOverlay> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
-                              vertical: 13,
+                              vertical: 11,
                             ),
-                            child: Text(
-                              ind.label,
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight:
-                                    on ? FontWeight.w700 : FontWeight.w500,
-                                color: on ? OcColors.primary : OcColors.text,
-                              ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        ind.label,
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: on
+                                              ? FontWeight.w700
+                                              : FontWeight.w500,
+                                          color: on
+                                              ? OcColors.primary
+                                              : OcColors.text,
+                                        ),
+                                      ),
+                                      if (ind.subtitle.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          ind.subtitle,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: OcColors.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                if (on)
+                                  Icon(
+                                    OcIcons.check,
+                                    size: 18,
+                                    color: OcColors.primary,
+                                  ),
+                              ],
                             ),
                           ),
                         );

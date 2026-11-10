@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/format.dart';
 import '../../core/shell_controller.dart';
+import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -391,10 +394,20 @@ class _OceanaTradeScreenState extends State<OceanaTradeScreen>
       builder: (ctx) => _CloseAllSheet(positions: positions),
     );
     if (ids == null || ids.isEmpty || !mounted) return;
+    var anyOk = false;
+    var anyErr = false;
     for (final id in ids) {
       try {
         await tradingService.closePosition(id);
-      } catch (_) {}
+        anyOk = true;
+      } catch (_) {
+        anyErr = true;
+      }
+    }
+    if (anyOk) {
+      unawaited(TradeSound.ok());
+    } else if (anyErr) {
+      unawaited(TradeSound.error());
     }
   }
 
@@ -619,7 +632,9 @@ class _OceanaTradeScreenState extends State<OceanaTradeScreen>
           if (ctx.mounted) Navigator.pop(ctx);
           try {
             await tradingService.cancelPending(o.orderId);
+            unawaited(TradeSound.ok());
           } catch (e) {
+            unawaited(TradeSound.error());
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),

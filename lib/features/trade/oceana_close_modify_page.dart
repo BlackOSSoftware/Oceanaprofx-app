@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
+import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
@@ -238,9 +240,11 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
     HapticFeedback.lightImpact();
     try {
       await tradingService.closePosition(_positionId);
+      unawaited(TradeSound.ok());
       if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
+      unawaited(TradeSound.error());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
@@ -268,12 +272,14 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
     HapticFeedback.lightImpact();
     try {
       await _saveSlTpIfNeeded();
+      unawaited(TradeSound.ok());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Position modified')),
       );
       Navigator.pop(context);
     } catch (e) {
+      unawaited(TradeSound.error());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
