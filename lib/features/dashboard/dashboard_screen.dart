@@ -113,7 +113,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    // Local saved FP logins (password switch) not already shown.
+    // Local saved FP account cards (numbers only — no passwords).
     for (final s in tradingService.fpAccounts) {
       add(
         _DashAccount(
@@ -124,7 +124,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           equity: s.balance,
           isActive: sessionNum.isNotEmpty && s.accountNumber.trim() == sessionNum,
           fromPortal: false,
-          savedPassword: s.password,
         ),
       );
     }
@@ -149,8 +148,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       if (row.fromPortal && row.id.isNotEmpty) {
         await tradingService.activateLinkedAccount(row.id);
-      } else if (row.savedPassword != null && row.savedPassword!.isNotEmpty) {
-        await tradingService.login(row.accountNumber, row.savedPassword!);
       } else {
         _toast(context, 'Cannot switch — re-login required');
         return;
@@ -256,7 +253,6 @@ class _DashAccount {
     required this.equity,
     required this.isActive,
     required this.fromPortal,
-    this.savedPassword,
   });
 
   final String id;
@@ -266,7 +262,6 @@ class _DashAccount {
   final double equity;
   final bool isActive;
   final bool fromPortal;
-  final String? savedPassword;
 }
 
 void _toast(BuildContext context, String msg) {

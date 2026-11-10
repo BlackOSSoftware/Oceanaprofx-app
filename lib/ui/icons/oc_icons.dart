@@ -53,6 +53,7 @@ abstract final class OcIcons {
   static const IconData search = LucideIcons.search;
   static const IconData listFilter = LucideIcons.listFilter;
   static const IconData bell = LucideIcons.bell;
+  static const IconData volume2 = LucideIcons.volume2;
   static const IconData trash2 = LucideIcons.trash2;
   static const IconData gripVertical = LucideIcons.gripVertical;
   static const IconData xCircle = LucideIcons.circleX;

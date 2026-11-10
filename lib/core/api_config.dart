@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Backend base — production HTTPS API.
@@ -71,7 +72,7 @@ abstract final class ApiConfig {
 
   static String host = defaultHost;
 
-  /// Strip hosts / URLs from any error text before UI display.
+  /// Strip hosts / URLs / tokens from any error text before UI / logs.
   static String scrubMessage(String raw) {
     var msg = raw.trim();
     msg = msg.replaceFirst(RegExp(r'^Exception:\s*'), '');
@@ -83,6 +84,13 @@ abstract final class ApiConfig {
     final patterns = <RegExp>[
       RegExp(r'https?://[^\s,;]+', caseSensitive: false),
       RegExp(r'wss?://[^\s,;]+', caseSensitive: false),
+      // Never leak JWTs / bearer tokens into UI, logs, or crash text.
+      RegExp(r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', caseSensitive: false),
+      RegExp(r'\beyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+'),
+      RegExp(
+        r'"(?:accessToken|refreshToken|tradeToken|token)"\s*:\s*"[^"]*"',
+        caseSensitive: false,
+      ),
       if (host.trim().isNotEmpty)
         RegExp(RegExp.escape(host), caseSensitive: false),
       RegExp(RegExp.escape(defaultHost), caseSensitive: false),
@@ -110,22 +118,26 @@ abstract final class ApiConfig {
   /// SnackBars / dialogs: never show raw API host.
   static String userFacingError(Object error) => scrubMessage('$error');
 
-  /// Local/LAN hosts stay on http/ws; production domain uses https/wss.
-  static bool get useTls {
+  static bool get _isLanHost {
     final h = host.toLowerCase();
-    if (h.startsWith('localhost') ||
+    return h.startsWith('localhost') ||
         h.startsWith('127.') ||
         h.startsWith('10.') ||
         h.startsWith('192.168.') ||
-        h.startsWith('172.')) {
-      return false;
-    }
-    return true;
+        h.startsWith('172.');
   }
 
+  /// Release/production always uses TLS. Debug may use http/ws for LAN only.
+  static bool get useTls {
+    if (kReleaseMode) return true;
+    return !_isLanHost;
+  }
+
+  /// Production / release: always https. Debug LAN: http allowed.
   static String get httpBase =>
       '${useTls ? 'https' : 'http'}://$host/api';
 
+  /// Production / release: always wss. Debug LAN: ws allowed.
   static String get wsUrl =>
       '${useTls ? 'wss' : 'ws'}://$host/ws/market';
 
@@ -160,6 +172,10 @@ abstract final class ApiConfig {
 
   static Future<void> save(String value) async {
     host = value.trim().isEmpty ? defaultHost : _normalizeHost(value);
+    // Release builds must never point at cleartext LAN hosts.
+    if (kReleaseMode && _isLanHost) {
+      host = defaultHost;
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, host);
   }

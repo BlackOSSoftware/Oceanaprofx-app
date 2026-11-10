@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/push_notifications.dart';
 import '../../core/theme_controller.dart';
+import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../features/auth/account_picker_page.dart';
 import '../../features/dashboard/oceana_internal_transfer_page.dart';
@@ -31,6 +32,7 @@ class MoreScreen extends StatefulWidget {
 class _MoreScreenState extends State<MoreScreen> {
   bool _oneClick = true;
   bool _notificationsOn = true;
+  bool _tradeSoundOn = true;
   int _notifUnread = 0;
   String _version = '1.1.1';
   OceanaVerifyProgress _verify = OceanaVerifyProgress.from(
@@ -42,9 +44,13 @@ class _MoreScreenState extends State<MoreScreen> {
   void initState() {
     super.initState();
     _notificationsOn = PushNotifications.enabled;
+    _tradeSoundOn = TradeSound.enabled;
     PushNotifications.inboxTick.addListener(_onPushInbox);
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _version = info.version);
+    });
+    TradeSound.loadPreference().then((_) {
+      if (mounted) setState(() => _tradeSoundOn = TradeSound.enabled);
     });
     _loadVerify();
     _loadNotifCount();
@@ -269,6 +275,18 @@ class _MoreScreenState extends State<MoreScreen> {
                     title: 'One Click Trading',
                     value: _oneClick,
                     onChanged: (v) => setState(() => _oneClick = v),
+                  ),
+                  _ToggleTile(
+                    icon: OcIcons.volume2,
+                    title: 'Trade Sound',
+                    value: _tradeSoundOn,
+                    onChanged: (v) async {
+                      setState(() => _tradeSoundOn = v);
+                      await TradeSound.setEnabled(v);
+                      if (mounted) {
+                        setState(() => _tradeSoundOn = TradeSound.enabled);
+                      }
+                    },
                     showDivider: false,
                   ),
                 ],

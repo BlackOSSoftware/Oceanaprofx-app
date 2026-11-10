@@ -427,17 +427,13 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
                             if (a.id.isNotEmpty &&
                                 tradingService.hasUserPortal) {
                               await tradingService.activateLinkedAccount(a.id);
-                            } else if (tradingService.fpAccounts.any(
-                              (f) =>
-                                  f.accountNumber == a.accountNumber &&
-                                  f.password.isNotEmpty,
-                            )) {
-                              final fp = tradingService.fpAccounts.firstWhere(
-                                (f) => f.accountNumber == a.accountNumber,
-                              );
-                              await tradingService.login(
-                                fp.accountNumber,
-                                fp.password,
+                            } else {
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Cannot switch — sign in again to use this account',
+                                  ),
+                                ),
                               );
                             }
                           } catch (e) {

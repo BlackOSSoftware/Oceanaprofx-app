@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_config.dart';
+import 'secure_store.dart';
 
 class ApiException implements Exception {
   ApiException(this.message);
@@ -163,8 +164,8 @@ class PublicBroker {
   );
 }
 
-/// Phone me yaad rakha hua FP Trades account (Manage Accounts card).
-/// Password sirf tab hota hai jab login pe "Save password" ON tha.
+/// Phone me yaad rakha hua trading account card (number / type / balance).
+/// Passwords are NEVER persisted — stay logged-in via JWT session only.
 class SavedFpAccount {
   const SavedFpAccount({
     required this.accountNumber,
@@ -180,6 +181,7 @@ class SavedFpAccount {
   final String accountNumber;
   final String name;
   final String accountType;
+  /// In-memory only (legacy callers). Never written to disk.
   final String password;
   final double balance;
   final DateTime? lastLogin;
@@ -222,7 +224,6 @@ class SavedFpAccount {
     'accountNumber': accountNumber,
     'name': name,
     'accountType': accountType,
-    'password': password,
     'balance': balance,
     'lastLogin': lastLogin?.toIso8601String(),
     'brokerCode': brokerCode,
@@ -233,7 +234,8 @@ class SavedFpAccount {
     accountNumber: '${j['accountNumber'] ?? ''}',
     name: '${j['name'] ?? ''}',
     accountType: '${j['accountType'] ?? ''}',
-    password: '${j['password'] ?? ''}',
+    // Intentionally ignore any legacy persisted password.
+    password: '',
     balance: (j['balance'] as num?)?.toDouble() ?? 0,
     lastLogin: DateTime.tryParse('${j['lastLogin'] ?? ''}'),
     brokerCode: '${j['brokerCode'] ?? ''}',
@@ -530,6 +532,7 @@ class UserPortalSession {
 }
 
 /// Device-local saved portal email (Switch Account list — survives logout).
+/// Email/name only — passwords are never persisted.
 class SavedPortalLogin {
   const SavedPortalLogin({
     required this.email,
@@ -540,6 +543,7 @@ class SavedPortalLogin {
 
   final String email;
   final String name;
+  /// Always empty on disk; kept for older call sites.
   final String password;
   final DateTime? lastLogin;
 
@@ -551,21 +555,20 @@ class SavedPortalLogin {
       SavedPortalLogin(
         email: email,
         name: name ?? this.name,
-        password: password ?? this.password,
+        password: '',
         lastLogin: lastLogin ?? this.lastLogin,
       );
 
   Map<String, dynamic> toJson() => {
         'email': email,
         'name': name,
-        'password': password,
         'lastLogin': lastLogin?.toIso8601String(),
       };
 
   factory SavedPortalLogin.fromJson(Map<String, dynamic> j) => SavedPortalLogin(
         email: '${j['email'] ?? ''}'.trim().toLowerCase(),
         name: '${j['name'] ?? ''}'.trim(),
-        password: '${j['password'] ?? ''}',
+        password: '',
         lastLogin: DateTime.tryParse('${j['lastLogin'] ?? ''}'),
       );
 }
@@ -684,7 +687,7 @@ class TradingService extends ChangeNotifier {
   /// Cached portal trading accounts (scoped by email).
   static const _linkedAccountsKey = 'linked_accounts_cache';
   static const _linkedAccountsEmailKey = 'linked_accounts_email';
-  /// Last successful email login (prefill Login form — survives logout).
+  /// Last successful email login (email only — prefill Login form).
   static const _emailCredsKey = 'email_login_credentials';
   /// All portal emails ever logged in on this device (Switch Account).
   static const _portalLoginsKey = 'saved_portal_logins';
@@ -759,6 +762,7 @@ class TradingService extends ChangeNotifier {
 
   bool _bootstrapped = false;
   bool _localRestored = false;
+  bool _loggingOut = false;
   Completer<void>? _localRestoreCompleter;
 
   /// True after [restoreLocal] finishes (session / portal from disk).
@@ -774,11 +778,24 @@ class TradingService extends ChangeNotifier {
   Future<void> restoreLocal() async {
     if (_localRestored) return;
     final prefs = await SharedPreferences.getInstance();
+    // Move any legacy SharedPreferences tokens into Keystore/Keychain.
+    await SecureStore.migrateFromPrefsIfNeeded(
+      legacySessionKey: 'session',
+      legacyPortalKey: _userPortalKey,
+    );
     final mqRaw = prefs.getString('mq_active_account');
     if (mqRaw != null) {
       try {
         final decoded = jsonDecode(mqRaw);
-        if (decoded is Map<String, dynamic>) mqAccount = decoded;
+        if (decoded is Map<String, dynamic>) {
+          mqAccount = _stripSecretFields(decoded);
+          // Rewrite disk without password if a legacy copy had one.
+          if (decoded.containsKey('password')) {
+            unawaited(
+              prefs.setString('mq_active_account', jsonEncode(mqAccount)),
+            );
+          }
+        }
       } catch (_) {}
     }
     activeSource =
@@ -787,14 +804,16 @@ class TradingService extends ChangeNotifier {
       for (final raw in prefs.getStringList(_fpAccountsKey) ?? const [])
         ?_decodeFp(raw),
     ];
-    final raw = prefs.getString('session');
-    if (raw != null) {
+    // Drop any legacy passwords still sitting in prefs.
+    unawaited(_saveFpAccounts());
+    final raw = await SecureStore.read(SecureStore.sessionKey);
+    if (raw != null && raw.isNotEmpty) {
       try {
         session = Session.fromJson(jsonDecode(raw) as Map<String, dynamic>);
       } catch (_) {}
     }
-    final portalRaw = prefs.getString(_userPortalKey);
-    if (portalRaw != null) {
+    final portalRaw = await SecureStore.read(SecureStore.portalKey);
+    if (portalRaw != null && portalRaw.isNotEmpty) {
       try {
         userPortal = UserPortalSession.fromJson(
           jsonDecode(portalRaw) as Map<String, dynamic>,
@@ -805,26 +824,32 @@ class TradingService extends ChangeNotifier {
       for (final raw in prefs.getStringList(_portalLoginsKey) ?? const [])
         ?_decodePortalLogin(raw),
     ];
-    // Migrate legacy single email credential into the multi-account list.
+    // Migrate legacy single email credential → email-only list (drop password).
     final legacyRaw = prefs.getString(_emailCredsKey);
     if (legacyRaw != null && legacyRaw.isNotEmpty) {
       try {
         final j = jsonDecode(legacyRaw);
         if (j is Map) {
           final e = '${j['email'] ?? ''}'.trim().toLowerCase();
-          final p = '${j['password'] ?? ''}';
-          if (e.isNotEmpty &&
-              p.isNotEmpty &&
-              !savedPortalLogins.any((a) => a.email == e)) {
-            savedPortalLogins = [
-              SavedPortalLogin(email: e, password: p, lastLogin: DateTime.now()),
-              ...savedPortalLogins,
-            ];
-            unawaited(_persistPortalLogins());
+          if (e.isNotEmpty) {
+            if (!savedPortalLogins.any((a) => a.email == e)) {
+              savedPortalLogins = [
+                SavedPortalLogin(email: e, lastLogin: DateTime.now()),
+                ...savedPortalLogins,
+              ];
+            }
+            // Rewrite legacy key as email-only (drop any stored password).
+            await prefs.setString(_emailCredsKey, jsonEncode({'email': e}));
+          } else {
+            await prefs.remove(_emailCredsKey);
           }
         }
-      } catch (_) {}
+      } catch (_) {
+        await prefs.remove(_emailCredsKey);
+      }
     }
+    unawaited(_persistPortalLogins());
+    unawaited(_scrubSavedMqPasswords());
     // Restore linked accounts only for the same portal email.
     final portalEmail = userPortal?.email.trim().toLowerCase() ?? '';
     final linkedEmail =
@@ -919,7 +944,7 @@ class TradingService extends ChangeNotifier {
   }
 
   /// Chalu session wala account list me jodo / update karo (sabse upar).
-  /// [password] null = purana saved password rehne do.
+  /// Passwords are never stored — [password] is ignored.
   Future<void> _rememberFp({String? password, bool touch = false}) async {
     final s = session;
     if (s == null) return;
@@ -930,7 +955,7 @@ class TradingService extends ChangeNotifier {
         .copyWith(
           name: s.name.isNotEmpty ? s.name : null,
           accountType: s.accountType.isNotEmpty ? s.accountType : null,
-          password: password,
+          password: '',
           lastLogin: touch || old == null ? DateTime.now() : null,
           brokerCode: s.brokerCode.isNotEmpty ? s.brokerCode : null,
           brokerDisplayName:
@@ -991,8 +1016,10 @@ class TradingService extends ChangeNotifier {
     _resetTradingState();
     session = next;
     loggedOutByUser = false;
+    await SecureStore.write(SecureStore.sessionKey, jsonEncode(next.toJson()));
+    // Ensure legacy prefs copy is gone.
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('session', jsonEncode(next.toJson()));
+    await prefs.remove('session');
     notifyListeners();
     // WebSocket connects only now that we are logged in.
     connectWs();
@@ -1059,13 +1086,15 @@ class TradingService extends ChangeNotifier {
   }
 
   Future<void> _persistUserPortal() async {
-    final prefs = await SharedPreferences.getInstance();
     final p = userPortal;
     if (p == null || p.accessToken.isEmpty) {
-      await prefs.remove(_userPortalKey);
+      await SecureStore.delete(SecureStore.portalKey);
     } else {
-      await prefs.setString(_userPortalKey, jsonEncode(p.toJson()));
+      await SecureStore.write(SecureStore.portalKey, jsonEncode(p.toJson()));
     }
+    // Never leave portal JWTs in SharedPreferences.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_userPortalKey);
   }
 
   static SavedPortalLogin? _decodePortalLogin(String raw) {
@@ -1090,12 +1119,12 @@ class TradingService extends ChangeNotifier {
     ]);
   }
 
-  /// Last email + password used for portal login (device local).
+  /// Last email used for portal login (prefill only — no password).
   Future<({String email, String password})?> savedEmailLogin() async {
     if (savedPortalLogins.isNotEmpty) {
       final top = savedPortalLogins.first;
-      if (top.email.isNotEmpty && top.password.isNotEmpty) {
-        return (email: top.email, password: top.password);
+      if (top.email.isNotEmpty) {
+        return (email: top.email, password: '');
       }
     }
     final prefs = await SharedPreferences.getInstance();
@@ -1104,16 +1133,16 @@ class TradingService extends ChangeNotifier {
     try {
       final j = jsonDecode(raw);
       if (j is! Map) return null;
-      final email = '${j['email'] ?? ''}'.trim();
-      final password = '${j['password'] ?? ''}';
-      if (email.isEmpty || password.isEmpty) return null;
-      return (email: email, password: password);
+      final email = '${j['email'] ?? ''}'.trim().toLowerCase();
+      if (email.isEmpty) return null;
+      return (email: email, password: '');
     } catch (_) {
       return null;
     }
   }
 
   /// Save / update a portal email on this device (Switch Account list).
+  /// [password] is ignored — credentials must not live in SharedPreferences.
   Future<void> rememberEmailLogin(
     String email,
     String password, {
@@ -1121,18 +1150,14 @@ class TradingService extends ChangeNotifier {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final e = email.trim().toLowerCase();
-    if (e.isEmpty || password.isEmpty) {
+    if (e.isEmpty) {
       await prefs.remove(_emailCredsKey);
       return;
     }
-    // Keep legacy single-key for older login prefill paths.
-    await prefs.setString(
-      _emailCredsKey,
-      jsonEncode({'email': e, 'password': password}),
-    );
+    await prefs.setString(_emailCredsKey, jsonEncode({'email': e}));
     final old = savedPortalLogins.where((a) => a.email == e).firstOrNull;
     final updated = (old ?? SavedPortalLogin(email: e)).copyWith(
-      password: password,
+      password: '',
       name: (name != null && name.trim().isNotEmpty)
           ? name.trim()
           : null,
@@ -1183,6 +1208,7 @@ class TradingService extends ChangeNotifier {
     myKyc = null;
     activeSource = '';
     _resetTradingState();
+    await SecureStore.delete(SecureStore.sessionKey);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('session');
     await prefs.remove(_fpAccountsKey);
@@ -1834,8 +1860,8 @@ class TradingService extends ChangeNotifier {
 
     await _startSession(data, source: 'server', fallbackNumber: usedNumber);
     // Har FP login Manage Accounts list me save (dusra login karne par
-    // bhi card gayab nahi hoga).
-    await _rememberFp(password: savePassword ? password : '', touch: true);
+    // bhi card gayab nahi hoga). Passwords are never persisted.
+    await _rememberFp(password: '', touch: true);
     if (activate) {
       // FP Trades login ab sabse upar wala (active) account hai.
       await setActiveSource('server');
@@ -1844,34 +1870,13 @@ class TradingService extends ChangeNotifier {
 
   Future<bool>? _ensuring;
 
-  /// Session na ho (app start pe server band tha, ya refresh fail hua) to
-  /// ACTIVE account (FP ya MQ) ke saved password se chup chaap dobara
-  /// login. Koi active account / password nahi = false (logged out).
+  /// Session restore helper. Stay logged-in only via JWT / disk session —
+  /// never silent re-login with a saved password.
   Future<bool> ensureSession() {
     if (session != null) return Future.value(true);
     if (loggedOutByUser) return Future.value(false);
     return _ensuring ??= () async {
-      try {
-        final mq = mqAccount;
-        final mqPass = '${mq?['password'] ?? ''}';
-        if (activeSource == 'mq' && mq != null && mqPass.isNotEmpty) {
-          await loginMetaQuotesDemo(
-            type: 'TRADE_ACCOUNT',
-            identifier: '${mq['login_id']}',
-            password: mqPass,
-          );
-        } else if (activeSource == 'server') {
-          // Prefer the most recently used FP card (list is newest-first).
-          final saved = fpAccounts
-              .where((a) => a.password.isNotEmpty)
-              .firstOrNull;
-          if (saved != null) {
-            await login(saved.accountNumber, saved.password, activate: false);
-          }
-        }
-      } catch (e) {
-        lastError = ApiConfig.userFacingError(e);
-      }
+      // Passwords are not persisted; cannot re-auth silently.
       return session != null;
     }().whenComplete(() => _ensuring = null);
   }
@@ -1900,8 +1905,10 @@ class TradingService extends ChangeNotifier {
           brokerDisplayName:
               brokerDisplayName.isNotEmpty ? brokerDisplayName : null,
         );
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('session', jsonEncode(session!.toJson()));
+        await SecureStore.write(
+          SecureStore.sessionKey,
+          jsonEncode(session!.toJson()),
+        );
         notifyListeners();
       }
     } catch (_) {
@@ -1995,8 +2002,10 @@ class TradingService extends ChangeNotifier {
         brokerDisplayName:
             brokerDisplayName.isNotEmpty ? brokerDisplayName : null,
       );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('session', jsonEncode(session!.toJson()));
+      await SecureStore.write(
+        SecureStore.sessionKey,
+        jsonEncode(session!.toJson()),
+      );
       _identify();
       notifyListeners();
       return true;
@@ -2005,38 +2014,80 @@ class TradingService extends ChangeNotifier {
     }
   }
 
-  /// Full logout — manual ya token-expire, dono cases me portal + trade
-  /// session clear. Shell Login screen kholta hai; silent re-login band.
+  /// Full logout — revoke refresh on server (best-effort), clear local tokens.
   /// Email prefill [rememberEmailLogin] se Login form pe rehta hai.
   Future<void> logout() async {
+    if (_loggingOut) return;
+    _loggingOut = true;
+    final tradeRefresh = session?.refreshToken ?? '';
+    final portalRefresh = userPortal?.refreshToken ?? '';
     final wasMq = session?.source == 'mq';
-    session = null;
-    _stopSessionWatch();
-    // Logged out: WebSocket band - koi live feed connection nahi.
-    disconnectWs();
-    _resetTradingState();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('session');
-    // Always clear portal too (incl. token-expire) so auth gate → Login.
-    loggedOutByUser = true;
-    userPortal = null;
-    linkedAccounts = const [];
-    // Saved FP cards belong to previous user — clear so next email
-    // never sees them on Dashboard / account switcher.
-    fpAccounts = const [];
-    userProfile = null;
-    myKyc = null;
-    await prefs.remove(_userPortalKey);
-    await prefs.remove(_fpAccountsKey);
-    await prefs.remove(_linkedAccountsKey);
-    await prefs.remove(_linkedAccountsEmailKey);
-    if (wasMq || activeSource == 'mq') {
-      mqAccount = null;
-      await prefs.remove('mq_active_account');
+    try {
+      try {
+        // Best-effort server revoke before wiping local state.
+        await _revokeServerSessions(
+          tradeRefresh: tradeRefresh,
+          portalRefresh: portalRefresh,
+        );
+      } catch (_) {}
+
+      session = null;
+      _stopSessionWatch();
+      // Logged out: WebSocket band - koi live feed connection nahi.
+      disconnectWs();
+      _resetTradingState();
+      await SecureStore.deleteAllAuth();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('session');
+      // Always clear portal too (incl. token-expire) so auth gate → Login.
+      loggedOutByUser = true;
+      userPortal = null;
+      linkedAccounts = const [];
+      // Saved FP cards belong to previous user — clear so next email
+      // never sees them on Dashboard / account switcher.
+      fpAccounts = const [];
+      userProfile = null;
+      myKyc = null;
+      await prefs.remove(_userPortalKey);
+      await prefs.remove(_fpAccountsKey);
+      await prefs.remove(_linkedAccountsKey);
+      await prefs.remove(_linkedAccountsEmailKey);
+      if (wasMq || activeSource == 'mq') {
+        mqAccount = null;
+        await prefs.remove('mq_active_account');
+      }
+      activeSource = '';
+      await prefs.setString('active_source', activeSource);
+      notifyListeners();
+    } finally {
+      _loggingOut = false;
     }
-    activeSource = '';
-    await prefs.setString('active_source', activeSource);
-    notifyListeners();
+  }
+
+  Future<void> _revokeServerSessions({
+    required String tradeRefresh,
+    required String portalRefresh,
+  }) async {
+    try {
+      if (portalRefresh.isNotEmpty) {
+        await _request(
+          'POST',
+          '/v1/auth/logout',
+          auth: false,
+          body: {'refreshToken': portalRefresh},
+        );
+      }
+    } catch (_) {}
+    try {
+      if (tradeRefresh.isNotEmpty) {
+        await _request(
+          'POST',
+          '/v1/account-auth/logout',
+          auth: false,
+          body: {'refreshToken': tradeRefresh},
+        );
+      }
+    } catch (_) {}
   }
 
   // ---------------- MetaQuotes demo (local) ----------------
@@ -2078,7 +2129,7 @@ class TradingService extends ChangeNotifier {
       ...local,
       ...profile,
       'email': profile['email'] ?? identifier,
-      'password': password,
+      // Never persist MQ trade password on device.
     });
     return profile;
   }
@@ -2098,12 +2149,13 @@ class TradingService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    mqAccount = account;
+    final scrubbed = _stripSecretFields(account);
+    mqAccount = scrubbed;
     activeSource = 'mq';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('mq_active_account', jsonEncode(account));
+    await prefs.setString('mq_active_account', jsonEncode(scrubbed));
     await prefs.setString('active_source', activeSource);
-    await _upsertSavedMq(account);
+    await _upsertSavedMq(scrubbed);
     notifyListeners();
   }
 
@@ -2132,21 +2184,46 @@ class TradingService extends ChangeNotifier {
   Future<void> _writeSavedMq(List<Map<String, dynamic>> list) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_mqListKey, [
-      for (final a in list) jsonEncode(a),
+      for (final a in list) jsonEncode(_stripSecretFields(a)),
     ]);
   }
 
   /// MQ account list me jodo / update (login se aaya ho to bhi card bane).
   Future<void> _upsertSavedMq(Map<String, dynamic> account) async {
-    final id = '${account['login_id']}';
+    final scrubbed = _stripSecretFields(account);
+    final id = '${scrubbed['login_id']}';
     final list = await savedMqAccounts();
     final i = list.indexWhere((a) => '${a['login_id']}' == id);
     if (i >= 0) {
-      list[i] = {...list[i], ...account};
+      list[i] = {...list[i], ...scrubbed}..remove('password');
     } else {
-      list.add(account);
+      list.add(scrubbed);
     }
     await _writeSavedMq(list);
+  }
+
+  static Map<String, dynamic> _stripSecretFields(Map<String, dynamic> raw) {
+    final out = Map<String, dynamic>.from(raw);
+    out.remove('password');
+    out.remove('trade_password');
+    out.remove('watch_password');
+    out.remove('investor_password');
+    return out;
+  }
+
+  Future<void> _scrubSavedMqPasswords() async {
+    final list = await savedMqAccounts();
+    var changed = false;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].containsKey('password') ||
+          list[i].containsKey('trade_password') ||
+          list[i].containsKey('watch_password') ||
+          list[i].containsKey('investor_password')) {
+        list[i] = _stripSecretFields(list[i]);
+        changed = true;
+      }
+    }
+    if (changed) await _writeSavedMq(list);
   }
 
   /// MQ account list se hatao (active ho to logout bhi).
@@ -2160,35 +2237,22 @@ class TradingService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Active account ka saved password phone se hatao (dobara login pe
-  /// password puchha jayega).
+  /// Strip any leftover passwords from local account caches.
   Future<void> clearSavedPassword() async {
-    if (mqLoggedIn) {
-      final id = '${mqAccount!['login_id']}';
-      mqAccount = {...mqAccount!}..remove('password');
+    if (mqAccount != null) {
+      mqAccount = _stripSecretFields(mqAccount!);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('mq_active_account', jsonEncode(mqAccount));
-      final list = await savedMqAccounts();
-      for (final a in list) {
-        if ('${a['login_id']}' == id) a.remove('password');
-      }
-      await _writeSavedMq(list);
-    } else if (session?.source == 'server') {
-      _setFpPassword(session!.accountNumber, '');
-      await _saveFpAccounts();
     }
+    await _scrubSavedMqPasswords();
+    fpAccounts = [
+      for (final a in fpAccounts) a.copyWith(password: ''),
+    ];
+    await _saveFpAccounts();
     notifyListeners();
   }
 
-  void _setFpPassword(String accountNumber, String password) {
-    fpAccounts = [
-      for (final a in fpAccounts)
-        a.accountNumber == accountNumber ? a.copyWith(password: password) : a,
-    ];
-  }
-
   /// MT5 Change password: kind = master / investor / trader / money_manager.
-  /// Master badla to phone ka saved password bhi naya.
   Future<void> changePassword({
     required String kind,
     required String currentPassword,
@@ -2203,23 +2267,7 @@ class TradingService extends ChangeNotifier {
         'newPassword': newPassword,
       },
     );
-    if (kind != 'master') return;
-    if (session?.source == 'mq' && mqAccount != null) {
-      final updated = {...mqAccount!, 'password': newPassword};
-      mqAccount = updated;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('mq_active_account', jsonEncode(updated));
-      await _upsertSavedMq(updated);
-    } else if (session?.source == 'server') {
-      final saved = fpAccounts
-          .where((a) => a.accountNumber == session!.accountNumber)
-          .firstOrNull;
-      // Pehle se password saved tha tabhi naya save karo.
-      if (saved != null && saved.password.isNotEmpty) {
-        _setFpPassword(saved.accountNumber, newPassword);
-        await _saveFpAccounts();
-      }
-    }
+    // Do not persist the new password on device.
     notifyListeners();
   }
 
@@ -2238,6 +2286,7 @@ class TradingService extends ChangeNotifier {
       '${ApiConfig.httpBase}$path',
     ).replace(queryParameters: query);
     final client = HttpClient();
+    // Never disable certificate validation.
     // Short connect timeout — unreachable host pe app hang na kare.
     client.connectionTimeout = const Duration(seconds: 5);
     client.idleTimeout = const Duration(seconds: 10);
@@ -2269,7 +2318,10 @@ class TradingService extends ChangeNotifier {
         // trade screen pe atak jati thi.
         final isAuthBootstrap = path.contains('/account-auth/login') ||
             path.contains('/account-auth/refresh') ||
-            path.contains('/auth/login');
+            path.contains('/account-auth/logout') ||
+            path.contains('/auth/login') ||
+            path.contains('/auth/logout') ||
+            path.contains('/auth/refresh-token');
         if (resp.statusCode == 401 && !retried && !isAuthBootstrap) {
           if (auth && session != null) {
             if (await _refreshSession()) {

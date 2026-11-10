@@ -25,32 +25,32 @@ class _ChangePasswordDialog extends StatefulWidget {
 }
 
 class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final _current = TextEditingController();
   final _new = TextEditingController();
   final _confirm = TextEditingController();
+  bool _showCurrent = false;
   bool _showNew = false;
   bool _showConfirm = false;
   bool _busy = false;
 
   @override
   void dispose() {
+    _current.dispose();
     _new.dispose();
     _confirm.dispose();
     super.dispose();
   }
 
-  String? get _currentPassword {
-    final n = widget.accountNumber.trim();
-    for (final a in tradingService.fpAccounts) {
-      if (a.accountNumber.trim() == n && a.password.isNotEmpty) {
-        return a.password;
-      }
-    }
-    return null;
-  }
-
   Future<void> _submit() async {
+    final current = _current.text;
     final next = _new.text.trim();
     final conf = _confirm.text.trim();
+    if (current.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your current password')),
+      );
+      return;
+    }
     if (next.length < 8) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password must be at least 8 characters')),
@@ -60,15 +60,6 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
     if (next != conf) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Passwords do not match')),
-      );
-      return;
-    }
-    final current = _currentPassword;
-    if (current == null || current.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Saved password missing — re-login and try again'),
-        ),
       );
       return;
     }
@@ -124,6 +115,13 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               ),
             ),
             const SizedBox(height: 16),
+            _field(
+              controller: _current,
+              hint: 'Current Password',
+              obscure: !_showCurrent,
+              onToggle: () => setState(() => _showCurrent = !_showCurrent),
+            ),
+            const SizedBox(height: 12),
             _field(
               controller: _new,
               hint: 'New Password',

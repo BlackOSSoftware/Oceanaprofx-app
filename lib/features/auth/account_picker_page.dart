@@ -260,19 +260,13 @@ Future<void> showSwitchLinkedAccountsSheet(BuildContext context) async {
     await tradingService.fetchUserProfile(force: true);
     final email = tradingService.userPortal?.email.trim() ?? '';
     final n = '${tradingService.userProfile?['name'] ?? ''}'.trim();
-    // Persist current portal into Switch Account list (also migrates legacy save).
-    final saved = await tradingService.savedEmailLogin();
-    if (email.isNotEmpty &&
-        saved != null &&
-        saved.email == email.trim().toLowerCase() &&
-        saved.password.isNotEmpty) {
+    // Persist current portal email into Switch Account list (no password).
+    if (email.isNotEmpty) {
       await tradingService.rememberEmailLogin(
         email,
-        saved.password,
+        '',
         name: n.isNotEmpty ? n : null,
       );
-    } else if (email.isNotEmpty && n.isNotEmpty) {
-      await tradingService.updateSavedPortalName(email, n);
     }
   } catch (_) {}
   if (!context.mounted) return;
@@ -330,31 +324,14 @@ class _SwitchPortalAccountsSheetState extends State<_SwitchPortalAccountsSheet> 
       Navigator.pop(context);
       return;
     }
-    if (account.password.isEmpty) {
-      Navigator.pop(context);
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => LoginPage(initialEmail: account.email),
-        ),
-      );
-      return;
-    }
-    setState(() => _switchingEmail = account.email);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await tradingService.loginWithEmail(account.email, account.password);
-      if (!mounted) return;
-      Navigator.pop(context);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _switchingEmail = null);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-        ),
-      );
-    }
+    // Passwords are not stored — always re-auth via Login with email prefilled.
+    Navigator.pop(context);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LoginPage(initialEmail: account.email),
+      ),
+    );
   }
 
   Future<void> _addNew() async {
