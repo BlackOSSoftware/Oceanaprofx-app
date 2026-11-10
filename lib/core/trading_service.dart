@@ -743,7 +743,9 @@ class TradingService extends ChangeNotifier {
   Timer? _reconnect;
   Timer? _marketStatusTimer;
   Timer? _sessionWatchTimer;
+  Timer? _presenceTimer;
   bool _closed = false;
+  bool _presenceForeground = true;
   // WebSocket stays OFF while logged out; it connects only on login.
   bool _wsEnabled = false;
   // Tick notifications are throttled so live bid/ask updates don't
@@ -916,6 +918,8 @@ class TradingService extends ChangeNotifier {
       } catch (_) {}
     }
     if (session != null) _startSessionWatch();
+    // Admin Online/Offline badge — app must heartbeat while logged in.
+    startPresenceTracking();
     notifyListeners();
   }
 
@@ -1025,6 +1029,7 @@ class TradingService extends ChangeNotifier {
     connectWs();
     _identify();
     _startSessionWatch();
+    startPresenceTracking();
     unawaited(refreshAccount());
     unawaited(refreshWatchlist());
   }
@@ -1305,6 +1310,7 @@ class TradingService extends ChangeNotifier {
     myKyc = null;
     await _persistUserPortal();
     await rememberEmailLogin(email, password);
+    startPresenceTracking();
     await refreshLinkedAccounts();
     await activatePrimaryAccount();
     try {
@@ -1956,6 +1962,68 @@ class TradingService extends ChangeNotifier {
     _sessionWatchTimer = null;
   }
 
+  /// Admin users list Online/Offline — heartbeat every 15s (< 30s stale).
+  void startPresenceTracking() {
+    _presenceForeground = true;
+    _presenceTimer?.cancel();
+    if (!hasUserPortal && session == null) return;
+    unawaited(sendPresenceHeartbeat());
+    _presenceTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_presenceForeground) unawaited(sendPresenceHeartbeat());
+    });
+  }
+
+  void stopPresenceTracking({bool markOffline = false}) {
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    if (markOffline) unawaited(sendPresenceOffline());
+  }
+
+  /// App resumed / foreground → online in admin.
+  void onAppResumed() {
+    _presenceForeground = true;
+    startPresenceTracking();
+  }
+
+  /// App background / detached → offline in admin.
+  void onAppBackgrounded() {
+    _presenceForeground = false;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    unawaited(sendPresenceOffline());
+  }
+
+  Future<void> sendPresenceHeartbeat() =>
+      _presencePost('/v1/user/presence/heartbeat');
+
+  Future<void> sendPresenceOffline() =>
+      _presencePost('/v1/user/presence/offline');
+
+  /// Silent presence call — never forces logout on failure.
+  Future<void> _presencePost(String path) async {
+    final portalToken = userPortal?.accessToken ?? '';
+    final tradeToken = session?.token ?? '';
+    final token = portalToken.isNotEmpty ? portalToken : tradeToken;
+    if (token.isEmpty) return;
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 5);
+    client.idleTimeout = const Duration(seconds: 8);
+    try {
+      final uri = Uri.parse('${ApiConfig.httpBase}$path');
+      final req = await client.openUrl('POST', uri);
+      req.headers.contentType = ContentType.json;
+      req.headers.set('Authorization', 'Bearer $token');
+      req.write('{}');
+      final resp = await req.close();
+      // Drain body; ignore non-2xx (stale token etc.).
+      await resp.drain<void>();
+    } catch (_) {
+      // Presence is best-effort for admin UI.
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// Access JWT expire ho to refresh; refresh fail / missing → full logout
   /// (Login screen). Trade / account calls se pehle bhi use karo.
   Future<bool> ensureFreshSession() async {
@@ -2023,6 +2091,11 @@ class TradingService extends ChangeNotifier {
     final portalRefresh = userPortal?.refreshToken ?? '';
     final wasMq = session?.source == 'mq';
     try {
+      // Mark offline while tokens are still valid (admin Status column).
+      try {
+        await sendPresenceOffline();
+      } catch (_) {}
+      stopPresenceTracking();
       try {
         // Best-effort server revoke before wiping local state.
         await _revokeServerSessions(

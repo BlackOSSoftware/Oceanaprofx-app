@@ -84,6 +84,10 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     if (oldWidget.symbol != widget.symbol) {
       tradingService.subscribe(widget.symbol);
     }
+    // Returning to Chart tab — ensure live quote subscription is warm.
+    if (!oldWidget.active && widget.active) {
+      tradingService.subscribe(widget.symbol);
+    }
   }
 
   @override

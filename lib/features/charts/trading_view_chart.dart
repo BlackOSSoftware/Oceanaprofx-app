@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -120,6 +121,20 @@ class _TradingViewChartState extends State<TradingViewChart> {
     if (!_listEq(oldWidget.studies, widget.studies) && _pageReady) {
       _pushIndicators();
     }
+    // IndexedStack keeps WebView alive — while inactive, ticks are skipped so
+    // candles drift from live price. Resync OHLC + tick when chart tab returns.
+    if (!oldWidget.active && widget.active && _pageReady) {
+      unawaited(_resyncFromServer());
+    }
+  }
+
+  /// Reload candles from API and snap to current bid (after background tab).
+  Future<void> _resyncFromServer() async {
+    if (!mounted || !_pageReady || !widget.active) return;
+    await _pushHistory();
+    if (!mounted || !_pageReady || !widget.active) return;
+    await _pushIndicators();
+    _pushLiveTick(force: true);
   }
 
   static bool _listEq(List<String> a, List<String> b) {
@@ -269,10 +284,16 @@ class _TradingViewChartState extends State<TradingViewChart> {
     grid: { vertLines: { color: '$gridColor' }, horzLines: { color: '$gridColor' } },
     rightPriceScale: {
       borderColor: '$borderColor',
-      scaleMargins: { top: 0.05, bottom: 0.12 },
+      scaleMargins: { top: 0.08, bottom: 0.12 },
       autoScale: true,
+      mode: 0,
+      invertScale: false,
+      alignLabels: true,
+      borderVisible: true,
+      entireTextOnly: false,
       visible: true,
-      minimumWidth: 68
+      // Forex <1 (AUDCAD…) needs room for 5dp labels.
+      minimumWidth: 78
     },
     timeScale: {
       borderColor: '$borderColor',
@@ -299,18 +320,68 @@ class _TradingViewChartState extends State<TradingViewChart> {
   });
   var lastPaneCount = -1;
 
+  function priceFormatFor(dig) {
+    var d = Math.max(2, Math.min(8, (dig | 0) || 5));
+    return {
+      type: 'price',
+      precision: d,
+      minMove: Math.pow(10, -d)
+    };
+  }
+
+  function applyPriceFormat(dig) {
+    digits = Math.max(2, Math.min(8, (dig | 0) || 5));
+    series.applyOptions({ priceFormat: priceFormatFor(digits) });
+  }
+
+  /** Drop bad/zero OHLC that blow out the Y scale (common on FX < 1). */
+  function sanitizeBar(b) {
+    if (!b) return null;
+    var o = Number(b.open), h = Number(b.high), l = Number(b.low), c = Number(b.close);
+    if (!(o > 0 && h > 0 && l > 0 && c > 0)) return null;
+    if (!isFinite(o) || !isFinite(h) || !isFinite(l) || !isFinite(c)) return null;
+    var hi = Math.max(o, h, l, c);
+    var lo = Math.min(o, h, l, c);
+    // Reject absurd spikes vs typical FX/crypto ranges for a single bar.
+    if (hi / lo > 50) return null;
+    return {
+      time: b.time,
+      open: o,
+      high: hi,
+      low: lo,
+      close: c,
+      volume: Number(b.volume) || 0
+    };
+  }
+
+  /** Re-enable autoscaling after symbol/TF change (manual drag turns it off). */
+  function resetPriceScale() {
+    try {
+      chart.priceScale('right').applyOptions({
+        autoScale: true,
+        scaleMargins: { top: 0.08, bottom: Math.min(0.55, 0.12 + Math.max(0, lastPaneCount) * 0.14) }
+      });
+      series.priceScale().applyOptions({ autoScale: true });
+    } catch (e) {}
+  }
+
   var series;
   if (kind === 'line') {
-    series = chart.addLineSeries({ color: '#1414C7', lineWidth: 2, lastValueVisible: true, priceLineVisible: false });
+    series = chart.addLineSeries({
+      color: '#1414C7', lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+      priceFormat: priceFormatFor(digits)
+    });
   } else if (kind === 'area') {
     series = chart.addAreaSeries({
       lineColor: '#1414C7', topColor: 'rgba(20,20,199,0.28)', bottomColor: 'rgba(20,20,199,0.02)',
-      lineWidth: 2, lastValueVisible: true, priceLineVisible: false
+      lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+      priceFormat: priceFormatFor(digits)
     });
   } else {
     series = chart.addCandlestickSeries({
       upColor: '#26A69A', downColor: '#EF5350', borderUpColor: '#26A69A', borderDownColor: '#EF5350',
-      wickUpColor: '#26A69A', wickDownColor: '#EF5350', lastValueVisible: true, priceLineVisible: false
+      wickUpColor: '#26A69A', wickDownColor: '#EF5350', lastValueVisible: true, priceLineVisible: false,
+      priceFormat: priceFormatFor(digits)
     });
   }
 
@@ -426,14 +497,15 @@ class _TradingViewChartState extends State<TradingViewChart> {
       var b = bars[i];
       var t = Math.floor(Number(b.time) / tfSec) * tfSec;
       if (!isFinite(t)) continue;
-      map[t] = {
+      var clean = sanitizeBar({
         time: t,
-        open: Number(b.open),
-        high: Number(b.high),
-        low: Number(b.low),
-        close: Number(b.close),
-        volume: Number(b.volume) || 0
-      };
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume
+      });
+      if (clean) map[t] = clean;
     }
     var times = Object.keys(map).map(Number).sort(function(a, b) { return a - b; });
     var out = [];
@@ -455,6 +527,16 @@ class _TradingViewChartState extends State<TradingViewChart> {
         }
       }
       out.push(map[t]);
+    }
+    // Drop global outliers that stretch the Y axis (bad ticks / bad merge).
+    if (out.length >= 8) {
+      var mids = out.map(function(x) { return (x.high + x.low) / 2; }).sort(function(a, b) { return a - b; });
+      var med = mids[Math.floor(mids.length / 2)];
+      if (med > 0) {
+        out = out.filter(function(x) {
+          return x.high < med * 8 && x.low > med / 8;
+        });
+      }
     }
     return out;
   }
@@ -673,7 +755,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
 
   window.__setBars = function(bars, dig) {
     document.getElementById('err').style.display = 'none';
-    if (typeof dig === 'number' && dig > 0) digits = dig;
+    applyPriceFormat(typeof dig === 'number' && dig > 0 ? dig : digits);
     lastPaneCount = -1;
     ohlc = normalizeBars(bars || []);
     if (!ohlc.length) {
@@ -684,8 +766,12 @@ class _TradingViewChartState extends State<TradingViewChart> {
     }
     series.setData(ohlc.map(toSeriesBar));
     lastBar = ohlc[ohlc.length - 1];
+    // Symbol/TF change: always re-fit — previous pair's manual zoom
+    // left autoScale off so AUDCAD (<1) looked "far" on the Y axis.
+    resetPriceScale();
     chart.timeScale().fitContent();
     applyIndicators();
+    resetPriceScale();
   };
 
   window.__setIndicators = function(ids) {
