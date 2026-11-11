@@ -9,11 +9,14 @@ import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
+import '../../ui/widgets/oc_trade_result_dialog.dart';
+import 'chart_indicators.dart';
 import 'chart_models.dart';
 import 'oceana_chart_style_sheet.dart';
 import 'oceana_indicator_sheet.dart';
 import 'oceana_symbol_picker_page.dart';
 import 'oceana_timeframe_sheet.dart';
+import 'trading_view_advanced_chart.dart';
 import 'trading_view_chart.dart';
 import '../trade/oceana_pending_order_page.dart';
 
@@ -35,7 +38,9 @@ class OceanaChartsScreen extends StatefulWidget {
 class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   ChartTimeframe _tf = ChartTimeframes.of('M1');
   String _chartStyle = '1'; // candles
-  final Set<String> _activeIndicators = {};
+  final List<ChartIndicatorConfig> _indicators = [];
+  bool _showDrawTools = false;
+  ShellController? _shell;
 
   double _volume = 0.01;
   bool _busy = false;
@@ -91,11 +96,32 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _shell = ShellScope.maybeOf(context);
+  }
+
+  @override
   void dispose() {
+    final shell = _shell;
+    if (shell != null && shell.chartFullscreen) {
+      // Post-frame: avoid InheritedWidget notify during dispose / hot reload.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        shell.setChartFullscreen(false);
+      });
+    }
     tradingService.removeListener(_onLive);
     _volumeCtrl.dispose();
     _volumeFocus.dispose();
     super.dispose();
+  }
+
+  bool get _fullscreen => _shell?.chartFullscreen ?? false;
+
+  void _toggleFullscreen() {
+    final shell = _shell ?? ShellScope.of(context);
+    shell.setChartFullscreen(!shell.chartFullscreen);
+    setState(() {});
   }
 
   void _bumpVolume(double delta) {
@@ -187,12 +213,12 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   Future<void> _pickIndicators() async {
     await showOceanaIndicatorsSheet(
       context,
-      activeIds: _activeIndicators,
-      onChanged: (ids) {
+      active: _indicators,
+      onChanged: (list) {
         setState(() {
-          _activeIndicators
+          _indicators
             ..clear()
-            ..addAll(ids);
+            ..addAll(list);
         });
       },
     );
@@ -235,19 +261,20 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
       );
       unawaited(TradeSound.ok());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
+      await showOcTradeResult(
+        context,
+        title: 'Order executed',
+        message:
             '$side ${widget.symbol} ${_volume.toStringAsFixed(2)} lot',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
       );
     } catch (e) {
       unawaited(TradeSound.error());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
+      await showOcTradeResult(
+        context,
+        title: 'Order failed',
+        message: '$e'.replaceFirst('Exception: ', ''),
+        success: false,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -379,6 +406,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final fs = _fullscreen;
     // Keyboard (symbol search / qty) must NOT resize the TradingView WebView.
     return MediaQuery.removeViewInsets(
       removeBottom: true,
@@ -386,30 +414,35 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
       child: Scaffold(
         backgroundColor: OcColors.surface,
         resizeToAvoidBottomInset: false,
+        // Fullscreen still respects status bar + system nav (battery / 3-button).
         body: SafeArea(
-          bottom: false,
+          top: true,
+          bottom: fs,
           child: Column(
             children: [
-              _LiveHeader(
-                symbol: widget.symbol,
-                active: widget.active,
-                onApps: () => ShellScope.of(context).openTab(3),
-                onAccount: _switching ? null : _showAccountSheet,
-                onPickSymbol: _pickSymbol,
-              ),
+              if (!fs)
+                _LiveHeader(
+                  symbol: widget.symbol,
+                  active: widget.active,
+                  onApps: () => ShellScope.of(context).openTab(3),
+                  onAccount: _switching ? null : _showAccountSheet,
+                  onPickSymbol: _pickSymbol,
+                ),
               _toolbar(),
               Expanded(
                 child: RepaintBoundary(child: _chartBody()),
               ),
-              _qtyRow(),
-              _lotQuickRow(),
-              _LiveBuySell(
-                symbol: widget.symbol,
-                active: widget.active,
-                busy: _busy,
-                onTrade: _trade,
-              ),
-              _pendingRow(),
+              if (!fs) ...[
+                _qtyRow(),
+                _lotQuickRow(),
+                _LiveBuySell(
+                  symbol: widget.symbol,
+                  active: widget.active,
+                  busy: _busy,
+                  onTrade: _trade,
+                ),
+                _pendingRow(),
+              ],
             ],
           ),
         ),
@@ -651,8 +684,9 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     );
   }
 
-  /// SS: 1m · candle · fx Indicators ····· gear · fullscreen
+  /// SS: 1m · candle · fx Indicators · Draw ····· fullscreen
   Widget _toolbar() {
+    final fs = _fullscreen;
     return Padding(
       padding: EdgeInsets.fromLTRB(10, 0, 4, 2),
       child: Row(
@@ -715,27 +749,51 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
               ),
             ),
           ),
-          Spacer(),
-          IconButton(
-            onPressed: () {},
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: BoxConstraints(minWidth: 36, minHeight: 36),
-            icon: Icon(
-              OcIcons.settings,
-              size: 18,
-              color: OcColors.textSecondary,
+          SizedBox(width: 4),
+          Material(
+            color: _showDrawTools ? OcColors.primarySoft : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              onTap: () => setState(() => _showDrawTools = !_showDrawTools),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      OcIcons.pencil,
+                      size: 16,
+                      color: _showDrawTools
+                          ? OcColors.primary
+                          : OcColors.textSecondary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Draw',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: _showDrawTools
+                            ? OcColors.primary
+                            : OcColors.text,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
+          Spacer(),
           IconButton(
-            onPressed: () {},
+            onPressed: _toggleFullscreen,
+            tooltip: fs ? 'Exit fullscreen' : 'Fullscreen',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
             constraints: BoxConstraints(minWidth: 36, minHeight: 36),
             icon: Icon(
-              Icons.fullscreen_rounded,
+              fs ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
               size: 22,
-              color: OcColors.textSecondary,
+              color: fs ? OcColors.primary : OcColors.textSecondary,
             ),
           ),
         ],
@@ -744,6 +802,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   }
 
   Widget _chartBody() {
+    final interval = TradingViewChart.intervalFromCode(_tf.code);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
@@ -752,16 +811,36 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
         border: Border.all(color: OcColors.border),
       ),
       clipBehavior: Clip.antiAlias,
-      child: TradingViewChart(
-        key: ValueKey(
-          '${widget.symbol}|${_tf.code}|$_chartStyle|${OcColors.isDark ? 'd' : 'l'}',
-        ),
-        symbol: widget.symbol,
-        timeframe: _tf.code,
-        interval: TradingViewChart.intervalFromCode(_tf.code),
-        style: _chartStyle,
-        studies: _activeIndicators.toList()..sort(),
-        active: widget.active,
+      // Keep broker LWC mounted (hidden) while Draw uses TV Advanced +
+      // native side toolbar — avoids tick→__tick races on the wrong page.
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Offstage(
+            offstage: _showDrawTools,
+            child: TradingViewChart(
+              key: ValueKey(
+                '${widget.symbol}|${_tf.code}|$_chartStyle|${OcColors.isDark ? 'd' : 'l'}',
+              ),
+              symbol: widget.symbol,
+              timeframe: _tf.code,
+              interval: interval,
+              style: _chartStyle,
+              indicators: List<ChartIndicatorConfig>.from(_indicators),
+              active: widget.active && !_showDrawTools,
+            ),
+          ),
+          if (_showDrawTools)
+            TradingViewAdvancedChart(
+              key: ValueKey(
+                'tvdraw|${widget.symbol}|$interval|$_chartStyle|${OcColors.isDark ? 'd' : 'l'}',
+              ),
+              symbol: widget.symbol,
+              interval: interval,
+              style: _chartStyle,
+              showSideToolbar: true,
+            ),
+        ],
       ),
     );
   }

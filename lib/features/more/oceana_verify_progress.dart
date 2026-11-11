@@ -46,11 +46,14 @@ class OceanaVerifyProgress {
   static OceanaVerifyProgress from({
     required Map<String, dynamic>? profile,
     required Map<String, dynamic>? kyc,
+    bool emailVerifiedHint = false,
   }) {
     final p = profile ?? const <String, dynamic>{};
     final k = kyc ?? const <String, dynamic>{};
 
-    final emailDone = _isTruthy(p['isMailVerified']);
+    // Hint covers sticky login / portal flag while /me is loading or incomplete.
+    final emailDone =
+        emailVerifiedHint || _isTruthy(p['isMailVerified']);
     final phoneDone = '${p['phone'] ?? ''}'.trim().isNotEmpty;
 
     final dob = '${p['date_of_birth'] ?? ''}'.trim();

@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../core/theme_controller.dart';
 import '../../core/trading_service.dart';
 import '../../ui/theme/oceana_colors.dart';
+import 'chart_indicators.dart';
 import 'chart_models.dart';
 import 'chart_repository.dart';
 
@@ -21,18 +22,48 @@ class TradingViewChart extends StatefulWidget {
     this.timeframe = 'M1',
     this.interval = '1',
     this.style = '1',
-    this.studies = const [],
+    this.indicators = const [],
+    @Deprecated('Use indicators') List<String> studies = const [],
     this.active = true,
-  });
+  }) : _legacyStudies = studies;
 
   final String symbol;
   final String timeframe;
   final String interval;
   final String style;
 
-  /// Indicator ids from [ChartIndicator.catalog] (e.g. rsi, sma20, macd).
-  final List<String> studies;
+  /// Active indicator instances (length / colour / …).
+  final List<ChartIndicatorConfig> indicators;
+  final List<String> _legacyStudies;
   final bool active;
+
+  List<ChartIndicatorConfig> get resolvedIndicators {
+    if (indicators.isNotEmpty) return indicators;
+    // Legacy id bridge (sma20 → sma length 20, …).
+    return [
+      for (final id in _legacyStudies)
+        if (id.startsWith('sma'))
+          ChartIndicatorConfig(
+            instanceId: id,
+            type: 'sma',
+            length: int.tryParse(id.replaceFirst('sma', '')) ?? 20,
+            color: id == 'sma50' ? '#9B59B6' : '#F5A623',
+          )
+        else if (id.startsWith('ema'))
+          ChartIndicatorConfig(
+            instanceId: id,
+            type: 'ema',
+            length: int.tryParse(id.replaceFirst('ema', '')) ?? 20,
+            color: id == 'ema50' ? '#E67E22' : '#3498DB',
+          )
+        else
+          ChartIndicatorConfig.create(
+            ChartIndicator.byType(id) ??
+                ChartIndicator(type: id, label: id),
+            existing: const [],
+          ),
+    ];
+  }
 
   static String intervalFromCode(String code) {
     switch (code.toUpperCase()) {
@@ -90,6 +121,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
 
   @override
   void dispose() {
+    _pageReady = false;
     mtDarkMode.removeListener(_onThemeChanged);
     tradingService.removeListener(_onLive);
     super.dispose();
@@ -118,7 +150,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
       _reload();
       return;
     }
-    if (!_listEq(oldWidget.studies, widget.studies) && _pageReady) {
+    if (!_indEq(oldWidget.resolvedIndicators, widget.resolvedIndicators) &&
+        _pageReady) {
       _pushIndicators();
     }
     // IndexedStack keeps WebView alive — while inactive, ticks are skipped so
@@ -137,10 +170,13 @@ class _TradingViewChartState extends State<TradingViewChart> {
     _pushLiveTick(force: true);
   }
 
-  static bool _listEq(List<String> a, List<String> b) {
+  static bool _indEq(
+    List<ChartIndicatorConfig> a,
+    List<ChartIndicatorConfig> b,
+  ) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
+      if (jsonEncode(a[i].toJson()) != jsonEncode(b[i].toJson())) return false;
     }
     return true;
   }
@@ -213,8 +249,11 @@ class _TradingViewChartState extends State<TradingViewChart> {
   Future<void> _pushIndicators() async {
     if (!_pageReady) return;
     try {
+      final payload = [
+        for (final c in widget.resolvedIndicators) c.toJson(),
+      ];
       await _web.runJavaScript(
-        'window.__setIndicators(${jsonEncode(widget.studies)});',
+        'window.__setIndicators(${jsonEncode(payload)});',
       );
     } catch (_) {}
   }
@@ -225,12 +264,18 @@ class _TradingViewChartState extends State<TradingViewChart> {
   }
 
   void _pushLiveTick({bool force = false}) {
+    if (!mounted || !_pageReady || !widget.active) return;
     final q = tradingService.quoteFor(widget.symbol);
     if (q == null || !q.hasPrice) return;
     if (!force && _lastTick == q.bid) return;
     _lastTick = q.bid;
     final t = (q.time ?? DateTime.now()).toUtc().millisecondsSinceEpoch ~/ 1000;
-    _web.runJavaScript('window.__tick(${q.bid}, ${q.ask}, $t);');
+    // Guard: Advanced Chart / unloaded page has no __tick — don't spam console.
+    unawaited(
+      _web.runJavaScript(
+        'try{if(typeof window.__tick==="function")window.__tick(${q.bid},${q.ask},$t);}catch(e){}',
+      ),
+    );
   }
 
   static String _html({
@@ -275,7 +320,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
   var lastBar = null;
   var bidLine = null;
   var askLine = null;
-  var activeIds = [];
+  var activeIndicators = [];
   var indSeries = {};
 
   var chart = LightweightCharts.createChart(document.getElementById('c'), {
@@ -574,44 +619,53 @@ class _TradingViewChartState extends State<TradingViewChart> {
 
   function applyIndicators() {
     clearIndicators();
-    if (!ohlc.length || !activeIds.length) {
+    if (!ohlc.length || !activeIndicators.length) {
       paneMargins(0);
       return;
     }
     var c = closes();
     var panes = [];
-    activeIds.forEach(function(id) {
-      if (id === 'vol' || id === 'rsi' || id === 'macd' || id === 'stoch' ||
-          id === 'atr' || id === 'mom' || id === 'cci' || id === 'willr' || id === 'ao') {
-        panes.push(id);
+    activeIndicators.forEach(function(cfg) {
+      var t = cfg.type;
+      if (t === 'vol' || t === 'rsi' || t === 'macd' || t === 'stoch' ||
+          t === 'atr' || t === 'mom' || t === 'cci' || t === 'willr' || t === 'ao') {
+        panes.push(cfg.id);
       }
     });
     paneMargins(panes.length);
     var paneH = panes.length ? (0.55 / panes.length) : 0;
 
-    activeIds.forEach(function(id) {
-      if (id === 'sma20') addOverlayLine('sma20', '#F5A623', lineData(sma(c, 20)));
-      else if (id === 'sma50') addOverlayLine('sma50', '#9B59B6', lineData(sma(c, 50)));
-      else if (id === 'ema20') addOverlayLine('ema20', '#3498DB', lineData(ema(c, 20)));
-      else if (id === 'ema50') addOverlayLine('ema50', '#E67E22', lineData(ema(c, 50)));
-      else if (id === 'bb') {
-        var mid = sma(c, 20);
-        var sd = stdev(c, 20);
+    activeIndicators.forEach(function(cfg) {
+      var type = cfg.type;
+      var id = cfg.id || (type + '_' + Math.random());
+      var len = Math.max(1, (cfg.length | 0) || 20);
+      var len2 = Math.max(1, (cfg.length2 | 0) || 26);
+      var len3 = Math.max(1, (cfg.length3 | 0) || 9);
+      var mult = Number(cfg.mult);
+      if (!(mult > 0)) mult = 2;
+      var color = cfg.color || '#F5A623';
+      var color2 = cfg.color2 || '#2196F3';
+      var color3 = cfg.color3 || '#FF9800';
+
+      if (type === 'sma') {
+        addOverlayLine(id, color, lineData(sma(c, len)));
+      } else if (type === 'ema') {
+        addOverlayLine(id, color, lineData(ema(c, len)));
+      } else if (type === 'bb') {
+        var mid = sma(c, len);
+        var sd = stdev(c, len);
         var up = [], lo = [], mi = [];
         for (var i = 0; i < ohlc.length; i++) {
           if (mid[i] == null || sd[i] == null) continue;
           mi.push({ time: ohlc[i].time, value: mid[i] });
-          up.push({ time: ohlc[i].time, value: mid[i] + 2 * sd[i] });
-          lo.push({ time: ohlc[i].time, value: mid[i] - 2 * sd[i] });
+          up.push({ time: ohlc[i].time, value: mid[i] + mult * sd[i] });
+          lo.push({ time: ohlc[i].time, value: mid[i] - mult * sd[i] });
         }
-        addOverlayLine('bb_mid', '#787B86', mi, 1);
-        addOverlayLine('bb_up', '#2196F3', up, 1);
-        addOverlayLine('bb_lo', '#2196F3', lo, 1);
-      } else if (id === 'vol') {
-        var pi = panes.indexOf('vol');
-        var top = 1 - (pi + 1) * paneH + 0.02;
-        var bot = Math.max(0, 1 - (pi + 1) * paneH - paneH + 0.04);
-        // invert: scaleMargins top is from top of chart
+        addOverlayLine(id + '_mid', color, mi, 1);
+        addOverlayLine(id + '_up', color2, up, 1);
+        addOverlayLine(id + '_lo', color2, lo, 1);
+      } else if (type === 'vol') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var hist = [];
@@ -624,25 +678,23 @@ class _TradingViewChartState extends State<TradingViewChart> {
             color: ohlc[i].close >= ohlc[i].open ? 'rgba(38,166,154,0.55)' : 'rgba(239,83,80,0.55)'
           });
         }
-        addPaneHist('vol', hist, 'vol', t, b);
-      } else if (id === 'rsi') {
-        var pi = panes.indexOf('rsi');
+        addPaneHist(id, hist, id, t, b);
+      } else if (type === 'rsi') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
-        addPaneLine('rsi', '#7B1FA2', lineData(rsi(c, 14)), 'rsi', t, b);
-      } else if (id === 'macd') {
-        var pi = panes.indexOf('macd');
+        addPaneLine(id, color, lineData(rsi(c, len)), id, t, b);
+      } else if (type === 'macd') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
-        var e12 = ema(c, 12), e26 = ema(c, 26);
-        var macdLine = [], signalSrc = [];
+        var eFast = ema(c, len), eSlow = ema(c, len2);
+        var macdLine = [];
         for (var i = 0; i < c.length; i++) {
-          if (e12[i] == null || e26[i] == null) { macdLine.push(null); signalSrc.push(null); }
-          else { var m = e12[i] - e26[i]; macdLine.push(m); signalSrc.push(m); }
+          if (eFast[i] == null || eSlow[i] == null) macdLine.push(null);
+          else macdLine.push(eFast[i] - eSlow[i]);
         }
-        // build signal on non-null macd values carefully via ema of macdLine with nulls
-        var sig = ema(macdLine.map(function(v){ return v == null ? 0 : v; }), 9);
-        // zero early until both ready
+        var sig = ema(macdLine.map(function(v){ return v == null ? 0 : v; }), len3);
         for (var i = 0; i < sig.length; i++) {
           if (macdLine[i] == null) sig[i] = null;
         }
@@ -652,82 +704,83 @@ class _TradingViewChartState extends State<TradingViewChart> {
           var h = macdLine[i] - sig[i];
           hist.push({ time: ohlc[i].time, value: h, color: h >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)' });
         }
-        addPaneHist('macd_hist', hist, 'macd', t, b);
-        addPaneLine('macd', '#2196F3', lineData(macdLine), 'macd', t, b);
-        addPaneLine('macd_sig', '#FF9800', lineData(sig), 'macd', t, b);
-      } else if (id === 'stoch') {
-        var pi = panes.indexOf('stoch');
+        addPaneHist(id + '_hist', hist, id, t, b);
+        addPaneLine(id + '_m', color, lineData(macdLine), id, t, b);
+        addPaneLine(id + '_s', color2, lineData(sig), id, t, b);
+      } else if (type === 'stoch') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var kArr = [];
+        var kLen = Math.max(1, len);
         for (var i = 0; i < ohlc.length; i++) {
-          if (i < 13) { kArr.push(null); continue; }
+          if (i < kLen - 1) { kArr.push(null); continue; }
           var hh = -Infinity, ll = Infinity;
-          for (var j = i - 13; j <= i; j++) {
+          for (var j = i - kLen + 1; j <= i; j++) {
             if (ohlc[j].high > hh) hh = ohlc[j].high;
             if (ohlc[j].low < ll) ll = ohlc[j].low;
           }
           kArr.push(hh === ll ? 50 : ((ohlc[i].close - ll) / (hh - ll)) * 100);
         }
-        var dArr = sma(kArr.map(function(v){ return v == null ? 0 : v; }), 3);
+        var dArr = sma(kArr.map(function(v){ return v == null ? 0 : v; }), len3);
         for (var i = 0; i < dArr.length; i++) if (kArr[i] == null) dArr[i] = null;
-        addPaneLine('stoch_k', '#2196F3', lineData(kArr), 'stoch', t, b);
-        addPaneLine('stoch_d', '#FF9800', lineData(dArr), 'stoch', t, b);
-      } else if (id === 'atr') {
-        var pi = panes.indexOf('atr');
+        addPaneLine(id + '_k', color, lineData(kArr), id, t, b);
+        addPaneLine(id + '_d', color2, lineData(dArr), id, t, b);
+      } else if (type === 'atr') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
-        addPaneLine('atr', '#26A69A', lineData(atr(14)), 'atr', t, b);
-      } else if (id === 'mom') {
-        var pi = panes.indexOf('mom');
+        addPaneLine(id, color, lineData(atr(len)), id, t, b);
+      } else if (type === 'mom') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var mom = [];
         for (var i = 0; i < c.length; i++) {
-          mom.push(i >= 10 ? c[i] - c[i - 10] : null);
+          mom.push(i >= len ? c[i] - c[i - len] : null);
         }
-        addPaneLine('mom', '#E91E63', lineData(mom), 'mom', t, b);
-      } else if (id === 'cci') {
-        var pi = panes.indexOf('cci');
+        addPaneLine(id, color, lineData(mom), id, t, b);
+      } else if (type === 'cci') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var tp = ohlc.map(function(x){ return (x.high + x.low + x.close) / 3; });
-        var mid = sma(tp, 20);
+        var mid = sma(tp, len);
         var cci = [];
         for (var i = 0; i < tp.length; i++) {
           if (mid[i] == null) { cci.push(null); continue; }
           var md = 0;
-          for (var j = i - 19; j <= i; j++) md += Math.abs(tp[j] - mid[i]);
-          md /= 20;
+          for (var j = i - len + 1; j <= i; j++) md += Math.abs(tp[j] - mid[i]);
+          md /= len;
           cci.push(md === 0 ? 0 : (tp[i] - mid[i]) / (0.015 * md));
         }
-        addPaneLine('cci', '#00BCD4', lineData(cci), 'cci', t, b);
-      } else if (id === 'willr') {
-        var pi = panes.indexOf('willr');
+        addPaneLine(id, color, lineData(cci), id, t, b);
+      } else if (type === 'willr') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var wr = [];
         for (var i = 0; i < ohlc.length; i++) {
-          if (i < 13) { wr.push(null); continue; }
+          if (i < len - 1) { wr.push(null); continue; }
           var hh = -Infinity, ll = Infinity;
-          for (var j = i - 13; j <= i; j++) {
+          for (var j = i - len + 1; j <= i; j++) {
             if (ohlc[j].high > hh) hh = ohlc[j].high;
             if (ohlc[j].low < ll) ll = ohlc[j].low;
           }
           wr.push(hh === ll ? -50 : ((hh - ohlc[i].close) / (hh - ll)) * -100);
         }
-        addPaneLine('willr', '#8BC34A', lineData(wr), 'willr', t, b);
-      } else if (id === 'ao') {
-        var pi = panes.indexOf('ao');
+        addPaneLine(id, color, lineData(wr), id, t, b);
+      } else if (type === 'ao') {
+        var pi = panes.indexOf(id);
         var t = 0.45 + pi * paneH;
         var b = Math.max(0.02, 1 - (t + paneH - 0.02));
         var mid = ohlc.map(function(x){ return (x.high + x.low) / 2; });
-        var s5 = sma(mid, 5), s34 = sma(mid, 34);
+        var sFast = sma(mid, len), sSlow = sma(mid, len2);
         var hist = [];
         var prev = null;
         for (var i = 0; i < ohlc.length; i++) {
-          if (s5[i] == null || s34[i] == null) continue;
-          var v = s5[i] - s34[i];
+          if (sFast[i] == null || sSlow[i] == null) continue;
+          var v = sFast[i] - sSlow[i];
           hist.push({
             time: ohlc[i].time,
             value: v,
@@ -735,7 +788,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
           });
           prev = v;
         }
-        addPaneHist('ao', hist, 'ao', t, b);
+        addPaneHist(id, hist, id, t, b);
       }
     });
   }
@@ -774,8 +827,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
     resetPriceScale();
   };
 
-  window.__setIndicators = function(ids) {
-    activeIds = Array.isArray(ids) ? ids.slice() : [];
+  window.__setIndicators = function(list) {
+    activeIndicators = Array.isArray(list) ? list.slice() : [];
     lastPaneCount = -1;
     applyIndicators();
   };
@@ -822,7 +875,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
     ensureLines(bid, ask > 0 ? ask : bid);
     // Rare indicator refresh — frequent rebuild was resetting price zoom.
     var now = Date.now();
-    if (activeIds.length && (!window.__indAt || now - window.__indAt > 2000)) {
+    if (activeIndicators.length && (!window.__indAt || now - window.__indAt > 2000)) {
       window.__indAt = now;
       applyIndicators();
     }

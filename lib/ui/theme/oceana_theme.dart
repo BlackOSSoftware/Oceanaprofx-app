@@ -86,7 +86,7 @@ abstract final class OceanaTheme {
           systemNavigationBarDividerColor: Colors.black,
         ),
         titleTextStyle: GoogleFonts.inter(
-          fontSize: 15,
+          fontSize: 16,
           fontWeight: FontWeight.w700,
           color: text,
         ),
@@ -101,7 +101,7 @@ abstract final class OceanaTheme {
             borderRadius: BorderRadius.circular(14),
           ),
           textStyle: GoogleFonts.inter(
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -115,7 +115,7 @@ abstract final class OceanaTheme {
             borderRadius: BorderRadius.circular(14),
           ),
           textStyle: GoogleFonts.inter(
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -126,11 +126,11 @@ abstract final class OceanaTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
-        hintStyle: GoogleFonts.inter(color: placeholder, fontSize: 12.5),
+        hintStyle: GoogleFonts.inter(color: placeholder, fontSize: 13.5),
         labelStyle: GoogleFonts.inter(
           color: primary,
           fontWeight: FontWeight.w600,
-          fontSize: 12,
+          fontSize: 13,
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -182,8 +182,8 @@ abstract final class OceanaTheme {
       displayColor: text,
     );
     return base.copyWith(
-      textTheme: _scaleTextTheme(inter, 0.88),
-      primaryTextTheme: _scaleTextTheme(inter, 0.88),
+      textTheme: _scaleTextTheme(inter, 0.94),
+      primaryTextTheme: _scaleTextTheme(inter, 0.94),
     );
   }
 

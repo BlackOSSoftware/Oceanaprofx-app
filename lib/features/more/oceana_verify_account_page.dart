@@ -52,6 +52,7 @@ class _OceanaVerifyAccountPageState extends State<OceanaVerifyAccountPage> {
         _progress = OceanaVerifyProgress.from(
           profile: tradingService.userProfile,
           kyc: tradingService.myKyc,
+          emailVerifiedHint: tradingService.isMailVerified,
         );
         _loading = false;
       });
@@ -63,6 +64,7 @@ class _OceanaVerifyAccountPageState extends State<OceanaVerifyAccountPage> {
         _progress = OceanaVerifyProgress.from(
           profile: tradingService.userProfile,
           kyc: tradingService.myKyc,
+          emailVerifiedHint: tradingService.isMailVerified,
         );
       });
     }

@@ -56,12 +56,23 @@ class _OceanaAppState extends State<OceanaApp> with WidgetsBindingObserver {
           valueListenable: mtDarkMode,
           builder: (context, isDark, _) {
             return MaterialApp(
-              title: 'Oceana',
+              title: 'OceanaProFx',
               debugShowCheckedModeBanner: false,
               theme: OceanaTheme.light,
               darkTheme: OceanaTheme.dark,
               themeMode: mtThemeModeForApp(),
               scrollBehavior: const OceanaScrollBehavior(),
+              builder: (context, child) {
+                final mq = MediaQuery.of(context);
+                // Slight global bump (~7%) — covers theme + hardcoded fontSizes.
+                final system = mq.textScaler.scale(1.0);
+                return MediaQuery(
+                  data: mq.copyWith(
+                    textScaler: TextScaler.linear(system * 1.07),
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
               home: AppUpdateGate(
                 child: OceanaShell(key: ValueKey('$pref|$isDark')),
               ),

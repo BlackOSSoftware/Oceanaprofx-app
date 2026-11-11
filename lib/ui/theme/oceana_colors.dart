@@ -30,9 +30,9 @@ abstract final class OcColors {
   static const Color profit = Color(0xFF1B8A3E);
   static const Color loss = Color(0xFFC62828);
 
-  static Color depositBg = const Color(0xFFA5D6A7);
-  static Color depositFg = const Color(0xFF1B5E20);
-  static Color withdrawBg = const Color(0xFFEF9A9A);
+  static Color depositBg = const Color(0xFFE8F5E9);
+  static Color depositFg = const Color(0xFF2E7D32);
+  static Color withdrawBg = const Color(0xFFFFEBEE);
   static Color withdrawFg = const Color(0xFFC62828);
   static Color transferBg = const Color(0xFFE8E8FA);
   static Color transferFg = brand;
@@ -40,8 +40,8 @@ abstract final class OcColors {
 
   /// Orange quick-action / warning chips (adapts in dark).
   /// Also used for More → Withdraw tile.
-  static Color orangeBg = const Color(0xFFFFE0B2);
-  static Color orangeFg = const Color(0xFFBF360C);
+  static Color orangeBg = const Color(0xFFFFF3E0);
+  static Color orangeFg = const Color(0xFFE65100);
   static Color warnBg = const Color(0xFFFFF3CD);
   static Color warnFg = const Color(0xFFB78103);
 
@@ -72,15 +72,15 @@ abstract final class OcColors {
       textSecondary = const Color(0xFFB4B4BE);
       textMuted = const Color(0xFF8E8E98);
       placeholder = const Color(0xFF7A7A85);
-      depositBg = const Color(0xFF14301A);
-      depositFg = const Color(0xFF81C784);
-      withdrawBg = const Color(0xFF321418);
-      withdrawFg = const Color(0xFFEF9A9A);
+      depositBg = const Color(0xFF16301C);
+      depositFg = const Color(0xFF8FD99A);
+      withdrawBg = const Color(0xFF3A181C);
+      withdrawFg = const Color(0xFFFF8A8A);
       transferBg = const Color(0xFF222838);
       transferFg = const Color(0xFF8B9BFF);
       historyBg = const Color(0xFF222838);
-      orangeBg = const Color(0xFF2A1C10);
-      orangeFg = const Color(0xFFFF8A50);
+      orangeBg = const Color(0xFF3A2818);
+      orangeFg = const Color(0xFFFFB074);
       warnBg = const Color(0xFF3A3018);
       warnFg = const Color(0xFFE6C35C);
       demoBadge = const Color(0xFF8B9BFF);
@@ -100,15 +100,15 @@ abstract final class OcColors {
       textSecondary = const Color(0xFF6B6B76);
       textMuted = const Color(0xFF9A9AA3);
       placeholder = const Color(0xFFB0B0B8);
-      depositBg = const Color(0xFFA5D6A7);
-      depositFg = const Color(0xFF1B5E20);
-      withdrawBg = const Color(0xFFEF9A9A);
+      depositBg = const Color(0xFFE8F5E9);
+      depositFg = const Color(0xFF2E7D32);
+      withdrawBg = const Color(0xFFFFEBEE);
       withdrawFg = const Color(0xFFC62828);
       transferBg = const Color(0xFFE8E8FA);
       transferFg = brand;
       historyBg = const Color(0xFFE8E8FA);
-      orangeBg = const Color(0xFFFFE0B2);
-      orangeFg = const Color(0xFFBF360C);
+      orangeBg = const Color(0xFFFFF3E0);
+      orangeFg = const Color(0xFFE65100);
       warnBg = const Color(0xFFFFF3CD);
       warnFg = const Color(0xFFB78103);
       demoBadge = brand;

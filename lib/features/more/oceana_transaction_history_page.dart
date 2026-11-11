@@ -7,7 +7,7 @@ import '../../ui/theme/oceana_colors.dart';
 
 enum _Period { allTime, today, lastWeek, thisMonth, custom }
 
-enum _TxFilter { all, deposit, withdrawal, transfer }
+enum _TxFilter { all, deposit, withdrawal, transfer, other }
 
 /// Transaction History — Deposit / Withdrawal / Internal Transfer (Tenax SS).
 class OceanaTransactionHistoryPage extends StatefulWidget {
@@ -31,6 +31,19 @@ class _OceanaTransactionHistoryPageState
     'WITHDRAWAL',
     'INTERNAL_TRANSFER_IN',
     'INTERNAL_TRANSFER_OUT',
+    'BONUS_MANUAL',
+    'BONUS',
+    'BONUS_CREDIT_IN',
+    'BONUS_CREDIT_OUT',
+    'TRADABLE_FUND',
+  };
+
+  static const _otherTypes = {
+    'BONUS_MANUAL',
+    'BONUS',
+    'BONUS_CREDIT_IN',
+    'BONUS_CREDIT_OUT',
+    'TRADABLE_FUND',
   };
 
   _Period _period = _Period.allTime;
@@ -89,7 +102,7 @@ class _OceanaTransactionHistoryPageState
       final apiType = switch (_filter) {
         _TxFilter.deposit => 'DEPOSIT',
         _TxFilter.withdrawal => 'WITHDRAWAL',
-        _TxFilter.transfer || _TxFilter.all => null,
+        _TxFilter.transfer || _TxFilter.all || _TxFilter.other => null,
       };
 
       List<Map<String, dynamic>> rows;
@@ -132,9 +145,11 @@ class _OceanaTransactionHistoryPageState
           if (a.id.isNotEmpty && a.accountNumber.trim().isNotEmpty)
             a.id: a.accountNumber.trim(),
       };
+      final allowTypes =
+          _filter == _TxFilter.other ? _otherTypes : _moneyTypes;
       final items = <_TxItem>[
         for (final j in rows)
-          if (_moneyTypes.contains('${j['type'] ?? ''}'.toUpperCase()))
+          if (allowTypes.contains('${j['type'] ?? ''}'.toUpperCase()))
             _TxItem.fromJson(j, linkedById: linkedById),
       ];
       if (!mounted) return;
@@ -243,6 +258,7 @@ class _OceanaTransactionHistoryPageState
               row(_TxFilter.deposit, 'Deposit'),
               row(_TxFilter.withdrawal, 'Withdrawal'),
               row(_TxFilter.transfer, 'Transfer'),
+              row(_TxFilter.other, 'Other'),
               const SizedBox(height: 12),
             ],
           ),
@@ -259,6 +275,7 @@ class _OceanaTransactionHistoryPageState
         _TxFilter.deposit => 'Deposit',
         _TxFilter.withdrawal => 'Withdrawal',
         _TxFilter.transfer => 'Transfer',
+        _TxFilter.other => 'Other',
       };
 
   String _periodLabel(_Period p) => switch (p) {
@@ -536,13 +553,21 @@ class _TxItem {
   final String remark;
 
   bool get isCredit =>
-      type == 'DEPOSIT' || type == 'INTERNAL_TRANSFER_IN';
+      type == 'DEPOSIT' ||
+      type == 'INTERNAL_TRANSFER_IN' ||
+      type == 'BONUS_MANUAL' ||
+      type == 'BONUS' ||
+      type == 'BONUS_CREDIT_IN' ||
+      type == 'TRADABLE_FUND';
 
   String get title => switch (type) {
         'DEPOSIT' => 'Deposit',
         'WITHDRAWAL' => 'Withdrawal',
         'INTERNAL_TRANSFER_IN' => 'Transfer In',
         'INTERNAL_TRANSFER_OUT' => 'Transfer Out',
+        'BONUS_MANUAL' || 'BONUS' || 'BONUS_CREDIT_IN' => 'Bonus Credit',
+        'BONUS_CREDIT_OUT' => 'Bonus Debit',
+        'TRADABLE_FUND' => 'Fund Transfer',
         _ => type,
       };
 
@@ -570,6 +595,9 @@ class _TxItem {
       'WITHDRAWAL' => 'WDR',
       'INTERNAL_TRANSFER_IN' => 'TIN',
       'INTERNAL_TRANSFER_OUT' => 'TOUT',
+      'BONUS_MANUAL' || 'BONUS' || 'BONUS_CREDIT_IN' => 'BNS',
+      'BONUS_CREDIT_OUT' => 'BND',
+      'TRADABLE_FUND' => 'FND',
       _ => 'TXN',
     };
 
@@ -612,6 +640,12 @@ class _TxCard extends StatelessWidget {
         'WITHDRAWAL' => OcIcons.arrowUpRight,
         'INTERNAL_TRANSFER_IN' => OcIcons.arrowLeftRight,
         'INTERNAL_TRANSFER_OUT' => OcIcons.arrowLeftRight,
+        'BONUS_MANUAL' ||
+        'BONUS' ||
+        'BONUS_CREDIT_IN' ||
+        'BONUS_CREDIT_OUT' =>
+          OcIcons.badgeCheck,
+        'TRADABLE_FUND' => OcIcons.wallet,
         _ => OcIcons.circleDollarSign,
       };
 

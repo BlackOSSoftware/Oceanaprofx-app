@@ -348,10 +348,13 @@ class _OceanaQuotesScreenState extends State<OceanaQuotesScreen> {
       if (!mounted) return;
     }
 
+    final screenH = MediaQuery.sizeOf(context).height;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: OcColors.surface,
       isScrollControlled: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(maxHeight: screenH * 0.78),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -752,7 +755,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                 ),
               ),
             ),
-            padding: EdgeInsets.fromLTRB(6, 10, 12, 10),
+            padding: EdgeInsets.fromLTRB(6, 12, 12, 12),
             child: Row(
               children: [
                 ReorderableDragStartListener(
@@ -767,14 +770,14 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                   ),
                 ),
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 48,
+                  height: 48,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: OcColors.primarySoft,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: SymbolFlagPair(symbol: widget.symbol, size: 34),
+                  child: SymbolFlagPair(symbol: widget.symbol, size: 36),
                 ),
                 SizedBox(width: 8),
                 Expanded(
@@ -784,7 +787,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                       Text(
                         widget.symbol,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14.5,
                           fontWeight: FontWeight.w800,
                           color: OcColors.text,
                           height: 1.1,
@@ -794,7 +797,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                       Text(
                         time,
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: OcColors.textMuted,
                           fontWeight: FontWeight.w500,
                         ),
@@ -814,7 +817,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                           Text(
                             spread,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               color: OcColors.textMuted,
                               fontWeight: FontWeight.w600,
                             ),
@@ -836,7 +839,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                     Text(
                       'L: $low',
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 10,
                         color: OcColors.textMuted,
                         fontWeight: FontWeight.w500,
                       ),
@@ -856,7 +859,7 @@ class _LiveQuoteRowState extends State<_LiveQuoteRow> {
                     Text(
                       'H: $high',
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 10,
                         color: OcColors.textMuted,
                         fontWeight: FontWeight.w500,
                       ),

@@ -19,10 +19,10 @@ class QuotePrice extends StatelessWidget {
     final prefix = head.length > 1 ? head.substring(0, head.length - 1) : '';
     const family = 'Roboto Condensed';
 
-    // Overall larger than before; last digit only ~12% bigger than the rest.
-    const baseSize = 18.0;
-    const lastSize = 20.5;
-    const tailSize = 11.5;
+    // Quote row prices — larger readable bid/ask (restored after chart rewrite).
+    const baseSize = 20.0;
+    const lastSize = 23.0;
+    const tailSize = 12.5;
 
     return Row(
       mainAxisSize: MainAxisSize.min,

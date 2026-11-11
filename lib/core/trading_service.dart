@@ -451,6 +451,8 @@ class LiveAccount {
     this.equity = 0,
     this.usedMargin = 0,
     this.freeMargin = 0,
+    this.bonusBalance = 0,
+    this.bonusLive = 0,
   });
 
   final double balance;
@@ -458,14 +460,22 @@ class LiveAccount {
   final double usedMargin;
   final double freeMargin;
 
+  /// Stored promotional credit (`bonus_balance`).
+  final double bonusBalance;
+
+  /// Live bonus for UI (follows floating equity when applicable).
+  final double bonusLive;
+
   double get marginLevel => usedMargin > 0 ? equity / usedMargin * 100 : 0;
 
   factory LiveAccount.fromJson(Map<String, dynamic> j) => LiveAccount(
-    balance: _d(j['balance']),
-    equity: _d(j['equity']),
-    usedMargin: _d(j['usedMargin'] ?? j['margin']),
-    freeMargin: _d(j['freeMargin']),
-  );
+        balance: _d(j['balance']),
+        equity: _d(j['equity']),
+        usedMargin: _d(j['usedMargin'] ?? j['margin']),
+        freeMargin: _d(j['freeMargin']),
+        bonusBalance: _d(j['bonusBalance'] ?? j['bonus_balance']),
+        bonusLive: _d(j['bonusLive'] ?? j['bonus_live']),
+      );
 }
 
 class WatchSymbol {
@@ -511,16 +521,21 @@ class UserPortalSession {
     required this.accessToken,
     this.refreshToken = '',
     this.email = '',
+    this.mailVerified = false,
   });
 
   final String accessToken;
   final String refreshToken;
   final String email;
 
+  /// Sticky: login requires verified mail; keep true across flaky /me payloads.
+  final bool mailVerified;
+
   Map<String, dynamic> toJson() => {
         'accessToken': accessToken,
         'refreshToken': refreshToken,
         'email': email,
+        'mailVerified': mailVerified,
       };
 
   factory UserPortalSession.fromJson(Map<String, dynamic> j) =>
@@ -528,6 +543,22 @@ class UserPortalSession {
         accessToken: '${j['accessToken'] ?? ''}',
         refreshToken: '${j['refreshToken'] ?? ''}',
         email: '${j['email'] ?? ''}',
+        mailVerified: j['mailVerified'] == true ||
+            j['mailVerified'] == 1 ||
+            '${j['mailVerified']}'.toLowerCase() == 'true',
+      );
+
+  UserPortalSession copyWith({
+    String? accessToken,
+    String? refreshToken,
+    String? email,
+    bool? mailVerified,
+  }) =>
+      UserPortalSession(
+        accessToken: accessToken ?? this.accessToken,
+        refreshToken: refreshToken ?? this.refreshToken,
+        email: email ?? this.email,
+        mailVerified: mailVerified ?? this.mailVerified,
       );
 }
 
@@ -1304,6 +1335,8 @@ class TradingService extends ChangeNotifier {
       accessToken: access,
       refreshToken: '${payload['refreshToken'] ?? ''}',
       email: nextEmail,
+      // Login already rejected unverified mail — sticky so UI never flaps.
+      mailVerified: true,
     );
     loggedOutByUser = false;
     userProfile = null;
@@ -1319,6 +1352,25 @@ class TradingService extends ChangeNotifier {
       if (n.isNotEmpty) await updateSavedPortalName(nextEmail, n);
     } catch (_) {}
     notifyListeners();
+  }
+
+  static bool _truthyFlag(dynamic v) {
+    if (v == true || v == 1) return true;
+    final s = '$v'.trim().toLowerCase();
+    return s == 'true' || s == '1';
+  }
+
+  /// Email verified for current portal user (sticky + /me).
+  bool get isMailVerified {
+    if (userPortal?.mailVerified == true) return true;
+    return _truthyFlag(userProfile?['isMailVerified']);
+  }
+
+  Future<void> _setPortalMailVerified(bool value) async {
+    final p = userPortal;
+    if (p == null || p.mailVerified == value) return;
+    userPortal = p.copyWith(mailVerified: value);
+    await _persistUserPortal();
   }
 
   /// `POST /v1/user/save-fcm-token` — links this device to the portal user.
@@ -1496,6 +1548,35 @@ class TradingService extends ChangeNotifier {
   Map<String, dynamic>? userProfile;
   Map<String, dynamic>? myKyc;
 
+  /// Apply /me (or PUT) payload without dropping a known-verified mail flag.
+  Map<String, dynamic> _mergeUserProfile(Map<String, dynamic> next) {
+    final hadKey = next.containsKey('isMailVerified');
+    final nextOk = hadKey ? _truthyFlag(next['isMailVerified']) : null;
+    final prevOk = _truthyFlag(userProfile?['isMailVerified']);
+    final stickyOk = userPortal?.mailVerified == true;
+
+    if (nextOk == true) {
+      unawaited(_setPortalMailVerified(true));
+      next['isMailVerified'] = true;
+    } else if (nextOk == false) {
+      // Explicit false from server — only clear sticky if not already sticky
+      // from a successful login in this session (admin can unverify later).
+      if (!stickyOk) {
+        unawaited(_setPortalMailVerified(false));
+      } else {
+        // Login proved verified; incomplete/stale false shouldn't flap UI.
+        next['isMailVerified'] = true;
+      }
+    } else if (prevOk || stickyOk) {
+      // Field missing on payload — keep verified.
+      next['isMailVerified'] = true;
+      if (stickyOk == false && prevOk) {
+        unawaited(_setPortalMailVerified(true));
+      }
+    }
+    return next;
+  }
+
   /// `GET /v1/user/me`
   Future<Map<String, dynamic>> fetchUserProfile({bool force = false}) async {
     if (!hasUserPortal) throw ApiException('Sign in with email first');
@@ -1507,9 +1588,10 @@ class TradingService extends ChangeNotifier {
       userAuth: true,
     );
     final data = res['data'];
-    userProfile = data is Map
+    final raw = data is Map
         ? Map<String, dynamic>.from(data)
         : <String, dynamic>{};
+    userProfile = _mergeUserProfile(raw);
     notifyListeners();
     return userProfile!;
   }
@@ -1528,7 +1610,7 @@ class TradingService extends ChangeNotifier {
     );
     final data = res['data'];
     if (data is Map) {
-      userProfile = Map<String, dynamic>.from(data);
+      userProfile = _mergeUserProfile(Map<String, dynamic>.from(data));
     } else {
       await fetchUserProfile(force: true);
     }

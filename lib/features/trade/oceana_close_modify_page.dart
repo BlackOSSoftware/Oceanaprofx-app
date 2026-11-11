@@ -9,6 +9,7 @@ import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
+import '../../ui/widgets/oc_trade_result_dialog.dart';
 import '../charts/chart_indicators.dart';
 import '../charts/chart_models.dart';
 import '../charts/oceana_chart_style_sheet.dart';
@@ -74,12 +75,7 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
 
   ChartTimeframe _tf = ChartTimeframes.of('M1');
   String _chartStyle = '1';
-  final Set<String> _activeIndicators = {};
-
-  List<String> get _studies => [
-        for (final i in ChartIndicator.catalog)
-          if (_activeIndicators.contains(i.id)) i.study,
-      ];
+  final List<ChartIndicatorConfig> _indicators = [];
 
   final _volumeCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
@@ -242,12 +238,21 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
       await tradingService.closePosition(_positionId);
       unawaited(TradeSound.ok());
       if (!mounted) return;
+      await showOcTradeResult(
+        context,
+        title: 'Position closed',
+        message: 'Order closed successfully',
+      );
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       unawaited(TradeSound.error());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
+      await showOcTradeResult(
+        context,
+        title: 'Close failed',
+        message: '$e'.replaceFirst('Exception: ', ''),
+        success: false,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -274,15 +279,21 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
       await _saveSlTpIfNeeded();
       unawaited(TradeSound.ok());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Position modified')),
+      await showOcTradeResult(
+        context,
+        title: 'Position updated',
+        message: 'Position modified',
       );
+      if (!mounted) return;
       Navigator.pop(context);
     } catch (e) {
       unawaited(TradeSound.error());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
+      await showOcTradeResult(
+        context,
+        title: 'Modify failed',
+        message: '$e'.replaceFirst('Exception: ', ''),
+        success: false,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -509,12 +520,12 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
                 onTap: () async {
                   await showOceanaIndicatorsSheet(
                     context,
-                    activeIds: _activeIndicators,
-                    onChanged: (ids) {
+                    active: _indicators,
+                    onChanged: (list) {
                       setState(() {
-                        _activeIndicators
+                        _indicators
                           ..clear()
-                          ..addAll(ids);
+                          ..addAll(list);
                       });
                     },
                   );
@@ -542,12 +553,13 @@ class _OceanaCloseModifyPageState extends State<OceanaCloseModifyPage> {
           clipBehavior: Clip.antiAlias,
           child: TradingViewChart(
             key: ValueKey(
-              '$_symbol|${_tf.code}|$_chartStyle|${_studies.join(',')}',
+              '$_symbol|${_tf.code}|$_chartStyle|${_indicators.map((e) => e.instanceId).join(',')}',
             ),
             symbol: _symbol,
+            timeframe: _tf.code,
             interval: TradingViewChart.intervalFromCode(_tf.code),
             style: _chartStyle,
-            studies: _studies,
+            indicators: List<ChartIndicatorConfig>.from(_indicators),
           ),
         ),
       ],

@@ -9,6 +9,7 @@ import '../../core/trade_sound.dart';
 import '../../core/trading_service.dart';
 import '../../ui/icons/oc_icons.dart';
 import '../../ui/theme/oceana_colors.dart';
+import '../../ui/widgets/oc_trade_result_dialog.dart';
 import '../charts/oceana_chart_style_sheet.dart';
 import '../charts/oceana_indicator_sheet.dart';
 import '../charts/oceana_timeframe_sheet.dart';
@@ -103,7 +104,7 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
 
   ChartTimeframe _tf = ChartTimeframes.of('M1');
   String _chartStyle = '1';
-  final Set<String> _activeIndicators = {};
+  final List<ChartIndicatorConfig> _indicators = [];
 
   final _volumeCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
@@ -137,11 +138,6 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
   bool get _isStopLimit => _type.contains('STOP_LIMIT');
   String get _typeLabel =>
       _types.firstWhere((t) => t.$1 == _type, orElse: () => _types.first).$2;
-
-  List<String> get _studies => [
-        for (final i in ChartIndicator.catalog)
-          if (_activeIndicators.contains(i.id)) i.study,
-      ];
 
   @override
   void initState() {
@@ -571,8 +567,10 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
         );
         unawaited(TradeSound.ok());
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pending order modified')),
+        await showOcTradeResult(
+          context,
+          title: 'Order updated',
+          message: 'Pending order modified',
         );
       } else {
         await tradingService.placePendingOrder(
@@ -587,8 +585,10 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
         );
         unawaited(TradeSound.ok());
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$_typeLabel placed')),
+        await showOcTradeResult(
+          context,
+          title: 'Order placed',
+          message: '$_typeLabel placed',
         );
       }
       if (!mounted) return;
@@ -596,8 +596,11 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
     } catch (e) {
       unawaited(TradeSound.error());
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))),
+      await showOcTradeResult(
+        context,
+        title: 'Order failed',
+        message: '$e'.replaceFirst('Exception: ', ''),
+        success: false,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -904,12 +907,12 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
                 onTap: () async {
                   await showOceanaIndicatorsSheet(
                     context,
-                    activeIds: _activeIndicators,
-                    onChanged: (ids) {
+                    active: _indicators,
+                    onChanged: (list) {
                       setState(() {
-                        _activeIndicators
+                        _indicators
                           ..clear()
-                          ..addAll(ids);
+                          ..addAll(list);
                       });
                     },
                   );
@@ -951,12 +954,13 @@ class _OceanaPendingOrderPageState extends State<OceanaPendingOrderPage> {
           clipBehavior: Clip.antiAlias,
           child: TradingViewChart(
             key: ValueKey(
-              '$_symbol|${_tf.code}|$_chartStyle|${_studies.join(',')}',
+              '$_symbol|${_tf.code}|$_chartStyle|${_indicators.map((e) => e.instanceId).join(',')}',
             ),
             symbol: _symbol,
+            timeframe: _tf.code,
             interval: TradingViewChart.intervalFromCode(_tf.code),
             style: _chartStyle,
-            studies: _studies,
+            indicators: List<ChartIndicatorConfig>.from(_indicators),
           ),
         ),
       ],

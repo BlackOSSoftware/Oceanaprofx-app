@@ -440,12 +440,6 @@ void _showMoreMenu(
                     'Transfer',
                     () => OceanaInternalTransferPage.open(context),
                   ),
-                if (!isDemo)
-                  row(
-                    OcIcons.coins,
-                    'Bonus',
-                    () => _toast(context, 'Bonus coming soon'),
-                  ),
                 row(
                   OcIcons.history,
                   'History',

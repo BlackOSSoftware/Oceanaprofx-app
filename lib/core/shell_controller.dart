@@ -3,16 +3,31 @@ import 'package:flutter/widgets.dart';
 class ShellController extends ChangeNotifier {
   int tab = 0;
   String chartSymbol = 'EURUSD';
+  bool chartFullscreen = false;
 
   void openTab(int index) {
-    if (tab == index) return;
-    tab = index;
-    notifyListeners();
+    var changed = false;
+    if (chartFullscreen) {
+      chartFullscreen = false;
+      changed = true;
+    }
+    if (tab != index) {
+      tab = index;
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 
   void openChart(String symbol) {
     chartSymbol = symbol;
     tab = 1;
+    chartFullscreen = false;
+    notifyListeners();
+  }
+
+  void setChartFullscreen(bool value) {
+    if (chartFullscreen == value) return;
+    chartFullscreen = value;
     notifyListeners();
   }
 }

@@ -1,104 +1,279 @@
 /// Built-in indicators for TradingView Lightweight Charts (broker OHLC).
+///
+/// Catalog = addable types. Active chart uses [ChartIndicatorConfig] instances
+/// so multiple MAs (different length/colour) can run together.
 class ChartIndicator {
   const ChartIndicator({
-    required this.id,
+    required this.type,
     required this.label,
-    required this.study,
     this.subtitle = '',
+    this.allowMultiple = false,
   });
 
-  final String id;
+  /// Engine type key: sma, ema, bb, rsi, …
+  final String type;
   final String label;
-
-  /// Kept for sheet compat (was TV study script name).
-  final String study;
   final String subtitle;
 
-  /// TV-style list — only ids implemented in [TradingViewChart] JS.
+  /// MA / EMA can be added many times with different settings.
+  final bool allowMultiple;
+
+  /// Kept for older call sites that used `id` / `study`.
+  String get id => type;
+  String get study => type.toUpperCase();
+
+  static const palette = <String>[
+    '#F5A623',
+    '#3498DB',
+    '#9B59B6',
+    '#E67E22',
+    '#1ABC9C',
+    '#E91E63',
+    '#00BCD4',
+    '#8BC34A',
+    '#FF5722',
+    '#607D8B',
+  ];
+
   static const catalog = <ChartIndicator>[
     ChartIndicator(
-      id: 'vol',
+      type: 'vol',
       label: 'Volume',
-      study: 'Volume',
       subtitle: 'Histogram',
     ),
     ChartIndicator(
-      id: 'sma20',
+      type: 'sma',
       label: 'Moving Average',
-      study: 'SMA',
-      subtitle: 'SMA 20',
+      subtitle: 'SMA — add multiple',
+      allowMultiple: true,
     ),
     ChartIndicator(
-      id: 'sma50',
-      label: 'Moving Average',
-      study: 'SMA',
-      subtitle: 'SMA 50',
-    ),
-    ChartIndicator(
-      id: 'ema20',
+      type: 'ema',
       label: 'Moving Average Exponential',
-      study: 'EMA',
-      subtitle: 'EMA 20',
+      subtitle: 'EMA — add multiple',
+      allowMultiple: true,
     ),
     ChartIndicator(
-      id: 'ema50',
-      label: 'Moving Average Exponential',
-      study: 'EMA',
-      subtitle: 'EMA 50',
-    ),
-    ChartIndicator(
-      id: 'bb',
+      type: 'bb',
       label: 'Bollinger Bands',
-      study: 'BB',
-      subtitle: 'Length 20 · StdDev 2',
+      subtitle: 'Length · StdDev',
     ),
     ChartIndicator(
-      id: 'rsi',
+      type: 'rsi',
       label: 'Relative Strength Index',
-      study: 'RSI',
-      subtitle: 'RSI 14',
+      subtitle: 'Length',
     ),
     ChartIndicator(
-      id: 'macd',
+      type: 'macd',
       label: 'MACD',
-      study: 'MACD',
-      subtitle: '12 · 26 · 9',
+      subtitle: 'Fast · Slow · Signal',
     ),
     ChartIndicator(
-      id: 'stoch',
+      type: 'stoch',
       label: 'Stochastic',
-      study: 'Stochastic',
-      subtitle: '%K 14 · %D 3',
+      subtitle: '%K · %D',
     ),
     ChartIndicator(
-      id: 'atr',
+      type: 'atr',
       label: 'Average True Range',
-      study: 'ATR',
-      subtitle: 'ATR 14',
+      subtitle: 'Length',
     ),
     ChartIndicator(
-      id: 'mom',
+      type: 'mom',
       label: 'Momentum',
-      study: 'Momentum',
-      subtitle: 'Length 10',
+      subtitle: 'Length',
     ),
     ChartIndicator(
-      id: 'cci',
+      type: 'cci',
       label: 'Commodity Channel Index',
-      study: 'CCI',
-      subtitle: 'CCI 20',
+      subtitle: 'Length',
     ),
     ChartIndicator(
-      id: 'willr',
+      type: 'willr',
       label: 'Williams %R',
-      study: 'Williams %R',
-      subtitle: 'Length 14',
+      subtitle: 'Length',
     ),
     ChartIndicator(
-      id: 'ao',
+      type: 'ao',
       label: 'Awesome Oscillator',
-      study: 'AO',
       subtitle: 'SMA 5 − SMA 34',
     ),
   ];
+
+  static ChartIndicator? byType(String type) {
+    for (final i in catalog) {
+      if (i.type == type) return i;
+    }
+    return null;
+  }
+
+  static String nextColor(List<ChartIndicatorConfig> existing, String type) {
+    final used = {
+      for (final c in existing)
+        if (c.type == type) c.color.toUpperCase(),
+    };
+    for (final p in palette) {
+      if (!used.contains(p.toUpperCase())) return p;
+    }
+    return palette[existing.length % palette.length];
+  }
+}
+
+/// One live indicator instance on the chart (with editable settings).
+class ChartIndicatorConfig {
+  ChartIndicatorConfig({
+    required this.instanceId,
+    required this.type,
+    this.length = 20,
+    this.length2 = 26,
+    this.length3 = 9,
+    this.mult = 2.0,
+    this.color = '#F5A623',
+    this.color2 = '#2196F3',
+    this.color3 = '#FF9800',
+  });
+
+  final String instanceId;
+  final String type;
+  int length;
+  int length2;
+  int length3;
+  double mult;
+  String color;
+  String color2;
+  String color3;
+
+  String get label {
+    final base = ChartIndicator.byType(type)?.label ?? type.toUpperCase();
+    return switch (type) {
+      'sma' => 'SMA $length',
+      'ema' => 'EMA $length',
+      'bb' => 'BB $length ($mult)',
+      'rsi' => 'RSI $length',
+      'macd' => 'MACD $length · $length2 · $length3',
+      'stoch' => 'Stoch $length · $length3',
+      'atr' => 'ATR $length',
+      'mom' => 'Mom $length',
+      'cci' => 'CCI $length',
+      'willr' => 'Will%R $length',
+      'vol' => 'Volume',
+      'ao' => 'AO',
+      _ => base,
+    };
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': instanceId,
+        'type': type,
+        'length': length,
+        'length2': length2,
+        'length3': length3,
+        'mult': mult,
+        'color': color,
+        'color2': color2,
+        'color3': color3,
+      };
+
+  ChartIndicatorConfig copy() => ChartIndicatorConfig(
+        instanceId: instanceId,
+        type: type,
+        length: length,
+        length2: length2,
+        length3: length3,
+        mult: mult,
+        color: color,
+        color2: color2,
+        color3: color3,
+      );
+
+  static ChartIndicatorConfig create(
+    ChartIndicator kind, {
+    required List<ChartIndicatorConfig> existing,
+  }) {
+    final id =
+        '${kind.type}_${DateTime.now().microsecondsSinceEpoch}_${existing.length}';
+    final color = ChartIndicator.nextColor(existing, kind.type);
+    return switch (kind.type) {
+      'sma' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'sma',
+          length: 20,
+          color: color,
+        ),
+      'ema' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'ema',
+          length: 20,
+          color: color,
+        ),
+      'bb' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'bb',
+          length: 20,
+          mult: 2,
+          color: '#787B86',
+          color2: '#2196F3',
+        ),
+      'rsi' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'rsi',
+          length: 14,
+          color: '#7B1FA2',
+        ),
+      'macd' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'macd',
+          length: 12,
+          length2: 26,
+          length3: 9,
+          color: '#2196F3',
+          color2: '#FF9800',
+        ),
+      'stoch' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'stoch',
+          length: 14,
+          length3: 3,
+          color: '#2196F3',
+          color2: '#FF9800',
+        ),
+      'atr' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'atr',
+          length: 14,
+          color: '#26A69A',
+        ),
+      'mom' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'mom',
+          length: 10,
+          color: '#E91E63',
+        ),
+      'cci' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'cci',
+          length: 20,
+          color: '#00BCD4',
+        ),
+      'willr' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'willr',
+          length: 14,
+          color: '#8BC34A',
+        ),
+      'vol' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'vol',
+          color: '#26A69A',
+        ),
+      'ao' => ChartIndicatorConfig(
+          instanceId: id,
+          type: 'ao',
+          length: 5,
+          length2: 34,
+          color: '#26A69A',
+        ),
+      _ => ChartIndicatorConfig(instanceId: id, type: kind.type, color: color),
+    };
+  }
 }

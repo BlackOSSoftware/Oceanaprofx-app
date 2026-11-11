@@ -35,9 +35,11 @@ class _MoreScreenState extends State<MoreScreen> {
   bool _tradeSoundOn = true;
   int _notifUnread = 0;
   String _version = '1.1.1';
-  OceanaVerifyProgress _verify = OceanaVerifyProgress.from(
-    profile: null,
-    kyc: null,
+  bool _verifyLoaded = false;
+  late OceanaVerifyProgress _verify = OceanaVerifyProgress.from(
+    profile: tradingService.userProfile,
+    kyc: tradingService.myKyc,
+    emailVerifiedHint: tradingService.isMailVerified,
   );
 
   @override
@@ -45,6 +47,10 @@ class _MoreScreenState extends State<MoreScreen> {
     super.initState();
     _notificationsOn = PushNotifications.enabled;
     _tradeSoundOn = TradeSound.enabled;
+    // Cached / sticky verified — don't flash "Email not verified" before /me.
+    if (tradingService.userProfile != null || tradingService.isMailVerified) {
+      _verifyLoaded = true;
+    }
     PushNotifications.inboxTick.addListener(_onPushInbox);
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _version = info.version);
@@ -71,6 +77,7 @@ class _MoreScreenState extends State<MoreScreen> {
     super.didUpdateWidget(oldWidget);
     if (widget.active && !oldWidget.active) {
       _loadNotifCount();
+      _loadVerify();
     }
   }
 
@@ -86,9 +93,22 @@ class _MoreScreenState extends State<MoreScreen> {
         _verify = OceanaVerifyProgress.from(
           profile: tradingService.userProfile,
           kyc: tradingService.myKyc,
+          emailVerifiedHint: tradingService.isMailVerified,
         );
+        _verifyLoaded = true;
       });
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      // Keep sticky verified; only mark loaded so we can show real unverified.
+      setState(() {
+        _verify = OceanaVerifyProgress.from(
+          profile: tradingService.userProfile,
+          kyc: tradingService.myKyc,
+          emailVerifiedHint: tradingService.isMailVerified,
+        );
+        _verifyLoaded = true;
+      });
+    }
   }
 
   Future<void> _loadNotifCount() async {
@@ -199,7 +219,12 @@ class _MoreScreenState extends State<MoreScreen> {
                     : (session != null
                         ? 'Account ${session.accountNumber}'
                         : 'Not signed in'),
-                emailVerified: _verify.emailDone,
+                emailVerified: _verify.emailDone ||
+                    tradingService.isMailVerified,
+                // Hide red "not verified" until /me (or sticky) has spoken.
+                showEmailUnverified: _verifyLoaded &&
+                    !_verify.emailDone &&
+                    !tradingService.isMailVerified,
                 onTap: () => showSwitchLinkedAccountsSheet(context),
               ),
               if (!_verify.fullyVerified) ...[
@@ -559,12 +584,14 @@ class _ProfileRow extends StatelessWidget {
     required this.name,
     required this.email,
     required this.emailVerified,
+    this.showEmailUnverified = true,
     required this.onTap,
   });
 
   final String name;
   final String email;
   final bool emailVerified;
+  final bool showEmailUnverified;
   final VoidCallback onTap;
 
   @override
@@ -620,7 +647,9 @@ class _ProfileRow extends StatelessWidget {
                       fontSize: 12.5,
                     ),
                   ),
-                  if (!emailVerified && email.contains('@')) ...[
+                  if (showEmailUnverified &&
+                      !emailVerified &&
+                      email.contains('@')) ...[
                     SizedBox(height: 2),
                     Text(
                       'Email not verified',
@@ -830,8 +859,8 @@ class _QuickActions extends StatelessWidget {
         tile(
           icon: OcIcons.arrowUpRight,
           label: 'Withdraw',
-          bg: OcColors.withdrawBg,
-          fg: OcColors.withdrawFg,
+          bg: OcColors.orangeBg,
+          fg: OcColors.orangeFg,
           onTap: onWithdraw,
         ),
         const SizedBox(width: 10),

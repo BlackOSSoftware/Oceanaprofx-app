@@ -164,7 +164,12 @@ class _OceanaShellState extends State<OceanaShell> {
         extendBody: true,
         body: Padding(
           // Floating pill overlays body — keep page content above it.
-          padding: EdgeInsets.only(bottom: OcBottomNav.bodyClearance(context)),
+          // Chart fullscreen: use full height (no nav clearance).
+          padding: EdgeInsets.only(
+            bottom: _shell.chartFullscreen
+                ? 0
+                : OcBottomNav.bodyClearance(context),
+          ),
           // IndexedStack = instant tab switch (no heavy PageView slide of
           // WebView/lists). State of each tab is preserved.
           child: IndexedStack(
@@ -176,10 +181,12 @@ class _OceanaShellState extends State<OceanaShell> {
             ],
           ),
         ),
-        bottomNavigationBar: OcBottomNav(
-          current: _current,
-          onSelect: (tab) => _shell.openTab(tab.index),
-        ),
+        bottomNavigationBar: _shell.chartFullscreen
+            ? null
+            : OcBottomNav(
+                current: _current,
+                onSelect: (tab) => _shell.openTab(tab.index),
+              ),
       ),
     );
   }

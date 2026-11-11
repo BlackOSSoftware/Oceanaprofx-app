@@ -130,7 +130,9 @@ class _OceanaTradeScreenState extends State<OceanaTradeScreen>
                         color: OcColors.primary,
                       ),
                     _tabBar(positions.length, pendings.length),
+                    // Balance / Equity card stays under tabs (not bottom).
                     Padding(
+                      key: const ValueKey('trade-summary-top'),
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                       child: tab == 2
                           ? _historySummary(_filteredDeals)
@@ -469,7 +471,12 @@ class _OceanaTradeScreenState extends State<OceanaTradeScreen>
     return _SummaryCard(
       rows: [
         ('Balance', formatMoney(live.balance)),
-        ('Credit', '0.00'),
+        (
+          'Credit',
+          formatMoney(
+            live.bonusLive > 0 ? live.bonusLive : live.bonusBalance,
+          ),
+        ),
         ('Equity', formatMoney(live.equity)),
         ('Margin', formatMoney(live.usedMargin)),
         ('Free Margin', formatMoney(live.freeMargin)),
@@ -951,17 +958,12 @@ String _fmtPrice(double v, {String? symbol}) {
   return v.toStringAsFixed(digits);
 }
 
-BoxDecoration _cardDeco(BorderRadius radius) => BoxDecoration(
+/// Flat MetaTrader row — soft white (slightly off page bg).
+BoxDecoration _rowDeco() => BoxDecoration(
       color: OcColors.surface,
-      borderRadius: radius,
-      border: Border.all(color: OcColors.border),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: OcColors.isDark ? 0.35 : 0.06),
-          blurRadius: 10,
-          offset: Offset(0, 2),
-        ),
-      ],
+      border: Border(
+        bottom: BorderSide(color: OcColors.border, width: 0.6),
+      ),
     );
 
 /* ---------------- lists ---------------- */
@@ -1025,10 +1027,9 @@ class _PositionsListState extends State<_PositionsList>
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+    return ListView.builder(
+      padding: EdgeInsets.zero,
       itemCount: positions.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final p = positions[i];
         final q = tradingService.quoteFor(p.symbol);
@@ -1038,10 +1039,9 @@ class _PositionsListState extends State<_PositionsList>
         return RepaintBoundary(
           child: InkWell(
             onTap: () => widget.onOpen(p),
-            borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              decoration: _cardDeco(BorderRadius.circular(16)),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: _rowDeco(),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -1159,10 +1159,9 @@ class _PendingListState extends State<_PendingList>
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+    return ListView.builder(
+      padding: EdgeInsets.zero,
       itemCount: pendings.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final o = pendings[i];
         final q = tradingService.quoteFor(o.symbol);
@@ -1171,10 +1170,9 @@ class _PendingListState extends State<_PendingList>
         return RepaintBoundary(
           child: InkWell(
             onTap: () => widget.onOpen(o),
-            borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              decoration: _cardDeco(BorderRadius.circular(16)),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: _rowDeco(),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -1260,10 +1258,9 @@ class _HistoryList extends StatelessWidget {
         child: Text('No history', style: TextStyle(color: OcColors.textSecondary)),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+    return ListView.builder(
+      padding: EdgeInsets.zero,
       itemCount: deals.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final d = deals[i];
         final open = expanded.contains(d.id);
@@ -1275,10 +1272,9 @@ class _HistoryList extends StatelessWidget {
             : _fmtPrice(d.takeProfit!, symbol: d.symbol);
         return InkWell(
           onTap: () => onToggle(d.id),
-          borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-            decoration: _cardDeco(BorderRadius.circular(14)),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            decoration: _rowDeco(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1665,10 +1661,10 @@ class _PendingDetailSheet extends StatelessWidget {
         (q != null && q.hasPrice ? (order.isBuy ? q.ask : q.bid) : 0);
     final id = order.ticket?.toString() ?? order.orderId;
     final sideColor = order.isBuy ? OcColors.ask : OcColors.bid;
-    final meta = const TextStyle(
-      color: Color(0xFF8A8A93),
-      fontSize: 11,
-      fontWeight: FontWeight.w400,
+    final detail = TextStyle(
+      color: OcColors.textSecondary,
+      fontSize: 11.5,
+      fontWeight: FontWeight.w500,
       height: 1.3,
     );
 
@@ -1711,12 +1707,12 @@ class _PendingDetailSheet extends StatelessWidget {
                             ),
                           ),
                           const Spacer(),
-                          const Text(
+                          Text(
                             'Pending',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
-                              color: Color(0xFF8A8A93),
+                              color: OcColors.textSecondary,
                             ),
                           ),
                         ],
@@ -1734,8 +1730,8 @@ class _PendingDetailSheet extends StatelessWidget {
                           ),
                           Text(
                             '${order.isBuy ? 'Buy' : 'Sell'} ${order.volume.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: Color(0xFF8A8A93),
+                            style: TextStyle(
+                              color: OcColors.textSecondary,
                               fontWeight: FontWeight.w500,
                               fontSize: 11.5,
                               height: 1,
@@ -1750,44 +1746,56 @@ class _PendingDetailSheet extends StatelessWidget {
                                 'Order: ${_fmtPrice(order.price, symbol: order.symbol)} | Current: ${_fmtPrice(cur, symbol: order.symbol)}',
                                 maxLines: 1,
                                 softWrap: false,
-                                style: meta,
+                                style: detail,
                               ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      // Meta rows share the same left edge as symbol/Buy (after flag).
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  'SL: ${order.stopLoss == null || order.stopLoss! <= 0 ? '-' : _fmtPrice(order.stopLoss!, symbol: order.symbol)}  TP: ${order.takeProfit == null || order.takeProfit! <= 0 ? '-' : _fmtPrice(order.takeProfit!, symbol: order.symbol)}',
-                                  style: meta,
-                                ),
-                                const SizedBox(height: 1),
-                                Text(
-                                  'Open: ${_fmtTs(order.createdAt, dashes: true)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: meta,
-                                ),
-                              ],
+                            child: Text.rich(
+                              TextSpan(
+                                style: detail,
+                                children: [
+                                  TextSpan(
+                                    text:
+                                        'SL: ${order.stopLoss == null || order.stopLoss! <= 0 ? '-' : _fmtPrice(order.stopLoss!, symbol: order.symbol)}',
+                                    style: detail.copyWith(
+                                      color: OcColors.loss,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const TextSpan(text: '  '),
+                                  TextSpan(
+                                    text:
+                                        'TP: ${order.takeProfit == null || order.takeProfit! <= 0 ? '-' : _fmtPrice(order.takeProfit!, symbol: order.symbol)}',
+                                    style: detail.copyWith(
+                                      color: OcColors.profit,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('ID: $id', style: meta),
-                              const SizedBox(height: 1),
-                              Text('Swap: 0.00', style: meta),
-                            ],
+                          Text('ID: $id', style: detail),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Open: ${_fmtTs(order.createdAt, dashes: true)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: detail,
+                            ),
                           ),
+                          Text('Swap: 0.00', style: detail),
                         ],
                       ),
                     ],
@@ -1856,10 +1864,10 @@ class _PositionDetailSheet extends StatelessWidget {
     final tp = p.takeProfit == null || p.takeProfit! <= 0
         ? '-'
         : _fmtPrice(p.takeProfit!, symbol: p.symbol);
-    const meta = TextStyle(
-      color: Color(0xFF8A8A93),
-      fontSize: 11,
-      fontWeight: FontWeight.w400,
+    final detail = TextStyle(
+      color: OcColors.textSecondary,
+      fontSize: 11.5,
+      fontWeight: FontWeight.w500,
       height: 1.3,
     );
 
@@ -1927,8 +1935,8 @@ class _PositionDetailSheet extends StatelessWidget {
                           ),
                           Text(
                             '${p.isBuy ? 'Buy' : 'Sell'} ${p.volume.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: Color(0xFF8A8A93),
+                            style: TextStyle(
+                              color: OcColors.textSecondary,
                               fontWeight: FontWeight.w500,
                               fontSize: 11.5,
                               height: 1,
@@ -1943,7 +1951,7 @@ class _PositionDetailSheet extends StatelessWidget {
                                 '${_fmtPrice(p.openPrice, symbol: p.symbol)} → ${_fmtPrice(cur, symbol: p.symbol)}',
                                 maxLines: 1,
                                 softWrap: false,
-                                style: meta,
+                                style: detail,
                               ),
                             ),
                           ),
@@ -1951,34 +1959,48 @@ class _PositionDetailSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text('SL: $sl  TP: $tp', style: meta),
-                                const SizedBox(height: 1),
-                                Text(
-                                  'Open: ${_fmtTs(p.openTime, dashes: true)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: meta,
-                                ),
-                              ],
+                            child: Text.rich(
+                              TextSpan(
+                                style: detail,
+                                children: [
+                                  TextSpan(
+                                    text: 'SL: $sl',
+                                    style: detail.copyWith(
+                                      color: OcColors.loss,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const TextSpan(text: '  '),
+                                  TextSpan(
+                                    text: 'TP: $tp',
+                                    style: detail.copyWith(
+                                      color: OcColors.profit,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('ID: $id', style: meta),
-                              const SizedBox(height: 1),
-                              Text(
-                                'Swap: ${formatMoney(p.swap)}',
-                                style: meta,
-                              ),
-                            ],
+                          Text('ID: $id', style: detail),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Open: ${_fmtTs(p.openTime, dashes: true)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: detail,
+                            ),
+                          ),
+                          Text(
+                            'Swap: ${formatMoney(p.swap)}',
+                            style: detail,
                           ),
                         ],
                       ),
