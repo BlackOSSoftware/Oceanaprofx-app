@@ -36,6 +36,7 @@ abstract final class PushNotifications {
   static bool _ready = false;
   static bool _enabled = true;
   static int _localId = 0;
+  static Future<void>? _initFuture;
   static StreamSubscription<String>? _tokenSub;
   static StreamSubscription<RemoteMessage>? _openSub;
   static StreamSubscription<RemoteMessage>? _fgSub;
@@ -62,8 +63,14 @@ abstract final class PushNotifications {
     );
   }
 
-  static Future<void> init() async {
-    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+  static Future<void> init() {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) {
+      return Future.value();
+    }
+    return _initFuture ??= _doInit();
+  }
+
+  static Future<void> _doInit() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _enabled = prefs.getBool(_prefsKeyEnabled) ?? true;
@@ -118,11 +125,13 @@ abstract final class PushNotifications {
       });
 
       _ready = true;
+      debugPrint('[FCM] init ready');
       if (_enabled) await syncTokenWithBackend();
     } catch (e, st) {
       // Missing google-services.json / Firebase misconfig should not crash app.
       debugPrint('[FCM] init failed: $e\n$st');
       _ready = false;
+      _initFuture = null;
     }
   }
 
@@ -213,16 +222,24 @@ abstract final class PushNotifications {
   }
 
   /// Call after portal login / restore so token is linked to user.
-  static Future<void> syncTokenWithBackend() async {
+  static Future<void> syncTokenWithBackend({bool forceRefresh = false}) async {
     if (!_enabled) return;
-    if (!_ready && Firebase.apps.isEmpty) return;
     try {
       if (!_ready) {
         await init();
         if (!_ready || !_enabled) return;
       }
-      if (!tradingService.hasUserPortal) return;
-      final token = await FirebaseMessaging.instance.getToken();
+      if (!tradingService.hasUserPortal) {
+        debugPrint('[FCM] sync skipped — no portal session');
+        return;
+      }
+      final messaging = FirebaseMessaging.instance;
+      if (forceRefresh) {
+        try {
+          await messaging.deleteToken();
+        } catch (_) {}
+      }
+      final token = await messaging.getToken();
       if (token == null || token.isEmpty) {
         debugPrint('[FCM] no token yet');
         return;

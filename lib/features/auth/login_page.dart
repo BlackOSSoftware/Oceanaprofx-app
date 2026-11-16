@@ -90,8 +90,16 @@ class _LoginPageState extends State<LoginPage> {
       );
       // Ask Google / iOS Password Manager to save this login.
       TextInput.finishAutofillContext(shouldSave: true);
-      // Bind FCM token to this portal user (best-effort).
-      unawaited(PushNotifications.syncTokenWithBackend());
+      // Bind FCM token to this portal user (refresh clears stale project tokens).
+      unawaited(
+        PushNotifications.syncTokenWithBackend(forceRefresh: true).then((_) {
+          // Second pass if permission/token race on cold start.
+          return Future<void>.delayed(
+            const Duration(seconds: 2),
+            () => PushNotifications.syncTokenWithBackend(),
+          );
+        }),
+      );
       if (!mounted) return;
       if (tradingService.isLoggedIn) {
         widget.onAuthenticated?.call();
