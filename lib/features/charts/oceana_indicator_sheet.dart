@@ -389,6 +389,10 @@ class _IndicatorSettingsSheetState extends State<_IndicatorSettingsSheet> {
       TextEditingController(text: '${_cfg.length3}');
   late final TextEditingController _mult =
       TextEditingController(text: _cfg.mult.toString());
+  late final TextEditingController _levelHigh =
+      TextEditingController(text: '${_cfg.levelHigh}');
+  late final TextEditingController _levelLow =
+      TextEditingController(text: '${_cfg.levelLow}');
 
   @override
   void dispose() {
@@ -396,13 +400,15 @@ class _IndicatorSettingsSheetState extends State<_IndicatorSettingsSheet> {
     _len2.dispose();
     _len3.dispose();
     _mult.dispose();
+    _levelHigh.dispose();
+    _levelLow.dispose();
     super.dispose();
   }
 
-  int _readInt(TextEditingController c, int fallback) {
+  int _readInt(TextEditingController c, int fallback, {int max = 500}) {
     final v = int.tryParse(c.text.trim());
     if (v == null || v < 1) return fallback;
-    return v.clamp(1, 500);
+    return v.clamp(1, max);
   }
 
   double _readDouble(TextEditingController c, double fallback) {
@@ -416,6 +422,15 @@ class _IndicatorSettingsSheetState extends State<_IndicatorSettingsSheet> {
     _cfg.length2 = _readInt(_len2, _cfg.length2);
     _cfg.length3 = _readInt(_len3, _cfg.length3);
     _cfg.mult = _readDouble(_mult, _cfg.mult);
+    if (_cfg.type == 'rsi') {
+      var hi = _readInt(_levelHigh, _cfg.levelHigh, max: 100);
+      var lo = _readInt(_levelLow, _cfg.levelLow, max: 100);
+      if (lo >= hi) {
+        lo = (hi - 1).clamp(1, 99);
+      }
+      _cfg.levelHigh = hi;
+      _cfg.levelLow = lo;
+    }
     Navigator.pop(context, _cfg);
   }
 
@@ -556,6 +571,16 @@ class _IndicatorSettingsSheetState extends State<_IndicatorSettingsSheet> {
                 ],
               ],
             ),
+          if (type == 'rsi') ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _numField(label: 'Overbought (70)', controller: _levelHigh),
+                const SizedBox(width: 10),
+                _numField(label: 'Oversold (30)', controller: _levelLow),
+              ],
+            ),
+          ],
           if (type == 'macd') ...[
             Row(
               children: [

@@ -3,85 +3,137 @@ import 'package:flutter/material.dart';
 import '../icons/oc_icons.dart';
 import '../theme/oceana_colors.dart';
 
-/// Centered trade result (replaces bottom black SnackBar that covers Pending).
+/// Small floating trade alert — top of screen (not over Buy/Sell buttons).
 Future<void> showOcTradeResult(
   BuildContext context, {
   required String title,
   required String message,
   bool success = true,
-}) {
-  return showDialog<void>(
-    context: context,
-    barrierDismissible: true,
+  Duration duration = const Duration(milliseconds: 1600),
+}) async {
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+
+  late OverlayEntry entry;
+  var closed = false;
+
+  void close() {
+    if (closed) return;
+    closed = true;
+    entry.remove();
+  }
+
+  entry = OverlayEntry(
     builder: (ctx) {
       final accent = success ? OcColors.ask : OcColors.loss;
       final soft = success ? OcColors.depositBg : OcColors.withdrawBg;
-      return Dialog(
-        backgroundColor: OcColors.surface,
-        surfaceTintColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 36),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 26, 22, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(color: soft, shape: BoxShape.circle),
-                child: Icon(
-                  success ? OcIcons.checkCircle2 : OcIcons.xCircle,
-                  color: accent,
-                  size: 30,
-                ),
+      final top = MediaQuery.paddingOf(ctx).top;
+      return Positioned(
+        left: 16,
+        right: 16,
+        // Chart header area — never over bottom trade buttons / nav.
+        top: top + 52,
+        child: Material(
+          color: Colors.transparent,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            builder: (context, t, child) => Opacity(
+              opacity: t,
+              child: Transform.translate(
+                offset: Offset(0, -8 * (1 - t)),
+                child: child,
               ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: OcColors.text,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.35,
-                  fontWeight: FontWeight.w500,
-                  color: OcColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: OcColors.primary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: OcColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: OcColors.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
                   ),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: soft,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        success ? OcIcons.checkCircle2 : OcIcons.xCircle,
+                        color: accent,
+                        size: 16,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: OcColors.text,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            message,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: OcColors.textSecondary,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: close,
+                      tooltip: 'Close',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      icon: Icon(
+                        OcIcons.x,
+                        size: 18,
+                        color: OcColors.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       );
     },
   );
+
+  overlay.insert(entry);
+  await Future<void>.delayed(duration);
+  close();
 }

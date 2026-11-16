@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
-/// Oceana brand lockup (wave + wordmark). Always [BoxFit.contain] so
-/// the full logo shows — never crop like a square app-icon.
+/// Oceana brand mark — full wave wordmark (`oceana_logo_v3.png`).
+///
+/// App drawer / launcher uses the circular emblem separately (Android mipmaps).
 class OcBrandMark extends StatelessWidget {
   const OcBrandMark({
     super.key,
     double? size,
     double? height,
     this.maxWidth = 260,
+    this.borderRadius = 14,
   }) : height = height ?? size ?? 72;
 
   /// Logo height. Prefer this (or legacy [size]) — width follows aspect.
@@ -16,32 +18,30 @@ class OcBrandMark extends StatelessWidget {
   /// Max width so the full wordmark fits on phone screens.
   final double maxWidth;
 
-  static const _asset = 'assets/brand/oceana_logo_v3.png';
+  /// Visible corner radius on the logo image (clips the PNG’s white plate).
+  final double borderRadius;
+
+  static const _logoAsset = 'assets/brand/oceana_logo_v3.png';
 
   @override
   Widget build(BuildContext context) {
-    final padV = height * 0.12;
-    final padH = height * 0.18;
-    final radius = height * 0.16;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        // Soft white plate — logo stays readable on dark theme.
-        color: const Color(0xFFF5F5F7),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+    return SizedBox(
+      height: height,
+      width: maxWidth,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        clipBehavior: Clip.antiAlias,
         child: Image.asset(
-          _asset,
+          _logoAsset,
           height: height,
           width: maxWidth,
-          fit: BoxFit.contain,
+          // cover so white PNG fills the rounded rect (contain left
+          // transparent letterbox → radius looked invisible).
+          fit: BoxFit.cover,
           alignment: Alignment.center,
           filterQuality: FilterQuality.high,
-          errorBuilder: (context, error, stackTrace) => SizedBox(
-            height: height,
-            width: height,
+          errorBuilder: (context, error, stackTrace) => ColoredBox(
+            color: const Color(0xFFF5F5F7),
             child: Center(
               child: Text(
                 'O',

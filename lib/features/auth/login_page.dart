@@ -29,6 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   final _emailFocus = FocusNode();
   final _passwordFocus = FocusNode();
   bool _obscure = true;
+  bool _rememberMe = true;
   bool _loading = false;
   String? _error;
 
@@ -57,10 +58,13 @@ class _LoginPageState extends State<LoginPage> {
       }
       return;
     }
-    final saved = await tradingService.savedEmailLogin();
-    if (!mounted || saved == null) return;
-    _email.text = saved.email;
-    setState(() {});
+    final remembered = await tradingService.rememberedLoginEmail();
+    if (!mounted) return;
+    if (remembered != null && remembered.isNotEmpty) {
+      _email.text = remembered;
+      _rememberMe = true;
+      setState(() {});
+    }
   }
 
   @override
@@ -82,6 +86,7 @@ class _LoginPageState extends State<LoginPage> {
       await tradingService.loginWithEmail(
         _email.text.trim(),
         _password.text,
+        rememberMe: _rememberMe,
       );
       // Ask Google / iOS Password Manager to save this login.
       TextInput.finishAutofillContext(shouldSave: true);
@@ -113,79 +118,114 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: OcColors.surface,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+            // Scaffold already shrinks for the keyboard — do not add viewInsets
+            // again (that + Spacer caused RenderFlex overflow on open/close).
             return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(28, 20, 28, 20 + viewInsets),
+              padding: const EdgeInsets.fromLTRB(28, 20, 28, 24),
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 40,
+                  minHeight: constraints.maxHeight - 44,
                 ),
-                child: IntrinsicHeight(
-                  child: AutofillGroup(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Spacer(flex: 2),
-                        const Center(
-                          child: OcBrandMark(height: 96, maxWidth: 280),
+                child: AutofillGroup(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Center(
+                        child: OcBrandMark(height: 88, maxWidth: 280),
+                      ),
+                      const SizedBox(height: 28),
+                      Text(
+                        'Hi, Welcome! 👋',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: OcColors.text,
                         ),
-                        const SizedBox(height: 28),
-                        Text(
-                          'Hi, Welcome! 👋',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            color: OcColors.text,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        TextField(
-                          controller: _email,
-                          focusNode: _emailFocus,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          autofillHints: const [
-                            AutofillHints.username,
-                            AutofillHints.email,
-                          ],
-                          decoration: const InputDecoration(hintText: 'Email'),
-                          onEditingComplete: () =>
-                              _passwordFocus.requestFocus(),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _password,
-                          focusNode: _passwordFocus,
-                          obscureText: _obscure,
-                          textInputAction: TextInputAction.done,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          keyboardType: TextInputType.visiblePassword,
-                          autofillHints: const [AutofillHints.password],
-                          onSubmitted: (_) => _submit(),
-                          decoration: InputDecoration(
-                            hintText: 'Password',
-                            suffixIcon: IconButton(
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
-                              icon: Icon(
-                                _obscure ? OcIcons.eyeOff : OcIcons.eye,
-                                size: 20,
-                                color: OcColors.textMuted,
-                              ),
+                      ),
+                      const SizedBox(height: 28),
+                      TextField(
+                        controller: _email,
+                        focusNode: _emailFocus,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        autofillHints: const [
+                          AutofillHints.username,
+                          AutofillHints.email,
+                        ],
+                        decoration: const InputDecoration(hintText: 'Email'),
+                        onEditingComplete: () =>
+                            _passwordFocus.requestFocus(),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _password,
+                        focusNode: _passwordFocus,
+                        obscureText: _obscure,
+                        textInputAction: TextInputAction.done,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        keyboardType: TextInputType.visiblePassword,
+                        autofillHints: const [AutofillHints.password],
+                        onSubmitted: (_) => _submit(),
+                        decoration: InputDecoration(
+                          hintText: 'Password',
+                          suffixIcon: IconButton(
+                            onPressed: () =>
+                                setState(() => _obscure = !_obscure),
+                            icon: Icon(
+                              _obscure ? OcIcons.eyeOff : OcIcons.eye,
+                              size: 20,
+                              color: OcColors.textMuted,
                             ),
                           ),
                         ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: Checkbox(
+                              value: _rememberMe,
+                              onChanged: _loading
+                                  ? null
+                                  : (v) => setState(
+                                        () => _rememberMe = v ?? false,
+                                      ),
+                              activeColor: OcColors.primary,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: _loading
+                                ? null
+                                : () => setState(
+                                      () => _rememberMe = !_rememberMe,
+                                    ),
+                            child: Text(
+                              'Remember me',
+                              style: TextStyle(
+                                color: OcColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
                             onPressed: () => openForgotPasswordFlow(
                               context,
                               initialEmail: _email.text.trim(),
@@ -199,55 +239,54 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                           ),
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _error!,
-                            style: TextStyle(
-                              color: OcColors.danger,
-                              fontSize: 13,
-                            ),
-                          ),
                         ],
-                        const SizedBox(height: 18),
-                        OcPrimaryButton(
-                          label: 'Login',
-                          loading: _loading,
-                          onPressed: _submit,
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                            color: OcColors.danger,
+                            fontSize: 13,
+                          ),
                         ),
-                        const SizedBox(height: 28),
-                        Center(
-                          child: Text.rich(
-                            TextSpan(
-                              style: TextStyle(
-                                color: OcColors.textSecondary,
-                                fontSize: 14,
-                              ),
-                              children: [
-                                const TextSpan(text: "Don't have an account "),
-                                WidgetSpan(
-                                  alignment: PlaceholderAlignment.baseline,
-                                  baseline: TextBaseline.alphabetic,
-                                  child: GestureDetector(
-                                    onTap: _openRegister,
-                                    child: Text(
-                                      'Register',
-                                      style: TextStyle(
-                                        color: OcColors.primary,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 14,
-                                      ),
+                      ],
+                      const SizedBox(height: 18),
+                      OcPrimaryButton(
+                        label: 'Login',
+                        loading: _loading,
+                        onPressed: _submit,
+                      ),
+                      const SizedBox(height: 28),
+                      Center(
+                        child: Text.rich(
+                          TextSpan(
+                            style: TextStyle(
+                              color: OcColors.textSecondary,
+                              fontSize: 14,
+                            ),
+                            children: [
+                              const TextSpan(text: "Don't have an account "),
+                              WidgetSpan(
+                                alignment: PlaceholderAlignment.baseline,
+                                baseline: TextBaseline.alphabetic,
+                                child: GestureDetector(
+                                  onTap: _openRegister,
+                                  child: Text(
+                                    'Register',
+                                    style: TextStyle(
+                                      color: OcColors.primary,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                        const Spacer(flex: 3),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),

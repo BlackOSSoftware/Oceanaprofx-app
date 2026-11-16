@@ -290,10 +290,13 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
       if (!mounted) return;
     }
 
+    final screenH = MediaQuery.sizeOf(context).height;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: OcColors.surface,
       isScrollControlled: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(maxHeight: screenH * 0.78),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -323,79 +326,91 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
                       ),
                   ];
 
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'Select Account',
-                          style: TextStyle(
-                            fontSize: 16.5,
-                            fontWeight: FontWeight.w800,
-                          ),
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                12 + MediaQuery.paddingOf(ctx).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Select Account',
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
                         ),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          icon: const Icon(OcIcons.x),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    for (final a in rows)
-                      _ChartAccountTile(
-                        account: a,
-                        active: (sessionId.isNotEmpty && a.id == sessionId) ||
-                            (sessionNum.isNotEmpty &&
-                                a.accountNumber.trim() == sessionNum),
-                        onTap: () async {
-                          final isActive =
-                              (sessionId.isNotEmpty && a.id == sessionId) ||
-                                  (sessionNum.isNotEmpty &&
-                                      a.accountNumber.trim() == sessionNum);
-                          if (isActive) {
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(OcIcons.x),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: screenH * 0.55),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) {
+                        final a = rows[i];
+                        final active =
+                            (sessionId.isNotEmpty && a.id == sessionId) ||
+                                (sessionNum.isNotEmpty &&
+                                    a.accountNumber.trim() == sessionNum);
+                        return _ChartAccountTile(
+                          account: a,
+                          active: active,
+                          onTap: () async {
+                            if (active) {
+                              Navigator.pop(ctx);
+                              return;
+                            }
                             Navigator.pop(ctx);
-                            return;
-                          }
-                          Navigator.pop(ctx);
-                          setState(() => _switching = true);
-                          final messenger = ScaffoldMessenger.of(context);
-                          try {
-                            if (a.id.isNotEmpty &&
-                                tradingService.hasUserPortal) {
-                              await tradingService.activateLinkedAccount(a.id);
-                            } else {
+                            setState(() => _switching = true);
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              if (a.id.isNotEmpty &&
+                                  tradingService.hasUserPortal) {
+                                await tradingService
+                                    .activateLinkedAccount(a.id);
+                              } else {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Cannot switch — sign in again to use this account',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
                               messenger.showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    'Cannot switch — sign in again to use this account',
+                                    e
+                                        .toString()
+                                        .replaceFirst('Exception: ', ''),
                                   ),
                                 ),
                               );
+                            } finally {
+                              if (mounted) {
+                                setState(() => _switching = false);
+                              }
                             }
-                          } catch (e) {
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  e
-                                      .toString()
-                                      .replaceFirst('Exception: ', ''),
-                                ),
-                              ),
-                            );
-                          } finally {
-                            if (mounted) {
-                              setState(() => _switching = false);
-                            }
-                          }
-                        },
-                      ),
-                  ],
-                ),
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             );
           },

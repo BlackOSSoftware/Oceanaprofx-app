@@ -300,8 +300,18 @@ class _TradingViewChartState extends State<TradingViewChart> {
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
   <style>
-    html, body { margin:0; padding:0; width:100%; height:100%; background:$pageBg; overflow:hidden; }
+    html, body { margin:0; padding:0; width:100%; height:100%; background:$pageBg; overflow:hidden; position:relative; }
     #c { width:100%; height:100%; }
+    #ohlc {
+      position:absolute; left:6px; top:4px; z-index:5; pointer-events:none;
+      font:500 9px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      color:$textColor; background:rgba(${dark ? '26,26,30' : '255,255,255'},0.78);
+      padding:2px 6px; border-radius:4px; letter-spacing:0;
+      white-space:nowrap; max-width:calc(100% - 88px); overflow:hidden; text-overflow:ellipsis;
+    }
+    #ohlc .k { opacity:0.55; font-weight:500; margin-right:1px; }
+    #ohlc .up { color:#1F7A38; }
+    #ohlc .dn { color:#D1432A; }
     #err {
       display:none; position:absolute; inset:0; align-items:center; justify-content:center;
       color:$textColor; font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif; padding:24px; text-align:center;
@@ -310,6 +320,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
 </head>
 <body>
   <div id="c"></div>
+  <div id="ohlc"></div>
   <div id="err"></div>
   <script>
 (function() {
@@ -404,7 +415,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
     try {
       chart.priceScale('right').applyOptions({
         autoScale: true,
-        scaleMargins: { top: 0.08, bottom: Math.min(0.55, 0.12 + Math.max(0, lastPaneCount) * 0.14) }
+        scaleMargins: { top: 0.08, bottom: paneBottomFor(Math.max(0, lastPaneCount)) }
       });
       series.priceScale().applyOptions({ autoScale: true });
     } catch (e) {}
@@ -523,14 +534,18 @@ class _TradingViewChartState extends State<TradingViewChart> {
     });
     indSeries = {};
   }
+  function paneBottomFor(paneCount) {
+    // Keep main price chart large; RSI/etc stay a compact strip.
+    if (!paneCount) return 0.10;
+    return Math.min(0.34, 0.10 + paneCount * 0.14);
+  }
   function paneMargins(paneCount) {
     // Only when pane count changes — re-applying every tick resets
     // manual price-scale zoom from the right axis.
     if (paneCount === lastPaneCount) return;
     lastPaneCount = paneCount;
-    var bottom = Math.min(0.55, 0.12 + paneCount * 0.14);
     chart.priceScale('right').applyOptions({
-      scaleMargins: { top: 0.04, bottom: bottom }
+      scaleMargins: { top: 0.04, bottom: paneBottomFor(paneCount) }
     });
   }
 
@@ -604,7 +619,108 @@ class _TradingViewChartState extends State<TradingViewChart> {
       borderVisible: false
     });
     indSeries[id] = s;
+    return s;
   }
+
+  function fmtP(v) {
+    if (v == null || !isFinite(Number(v))) return '—';
+    return Number(v).toFixed(digits);
+  }
+
+  var lastOhlcKey = '';
+  var ohlcPinnedTime = null; // locked candle while inspecting
+  var chartPanning = false;
+  var panTimer = null;
+
+  function paintOhlc(bar) {
+    var el = document.getElementById('ohlc');
+    if (!el) return;
+    if (!bar) {
+      lastOhlcKey = '';
+      el.innerHTML = '';
+      return;
+    }
+    var o = Number(bar.open), h = Number(bar.high), l = Number(bar.low), c = Number(bar.close);
+    var key = String(bar.time) + '|' + o + '|' + h + '|' + l + '|' + c;
+    if (key === lastOhlcKey) return;
+    lastOhlcKey = key;
+    var up = c >= o;
+    var cls = up ? 'up' : 'dn';
+    el.innerHTML =
+      '<span class="k">O</span><span class="' + cls + '">' + fmtP(o) + '</span>  ' +
+      '<span class="k">H</span><span class="' + cls + '">' + fmtP(h) + '</span>  ' +
+      '<span class="k">L</span><span class="' + cls + '">' + fmtP(l) + '</span>  ' +
+      '<span class="k">C</span><span class="' + cls + '">' + fmtP(c) + '</span>';
+  }
+
+  function barByTime(t) {
+    if (t == null || !ohlc.length) return null;
+    if (typeof t === 'object' && t && t.timestamp != null) t = t.timestamp;
+    t = Number(t);
+    if (!isFinite(t)) return null;
+    for (var i = ohlc.length - 1; i >= 0; i--) {
+      if (ohlc[i].time === t) return ohlc[i];
+    }
+    return null;
+  }
+
+  function paintPinnedOrLive() {
+    if (ohlcPinnedTime != null) {
+      var pinned = barByTime(ohlcPinnedTime);
+      if (pinned) { paintOhlc(pinned); return; }
+      // Pinned bar scrolled out of buffer — keep last painted values.
+      return;
+    }
+    paintOhlc(lastBar);
+  }
+
+  function barFromCrosshair(param) {
+    if (!param || param.time == null || !param.point) return null;
+    // Exact series sample only — no "nearest" guess (that jumps on pan).
+    try {
+      if (param.seriesData && series) {
+        var d = param.seriesData.get(series);
+        if (d) {
+          var t = param.time;
+          if (typeof t === 'object' && t && t.timestamp != null) t = t.timestamp;
+          if (d.open != null && d.high != null && d.low != null && d.close != null) {
+            return { time: Number(t), open: d.open, high: d.high, low: d.low, close: d.close };
+          }
+          if (d.value != null) {
+            var v = Number(d.value);
+            return { time: Number(t), open: v, high: v, low: v, close: v };
+          }
+        }
+      }
+    } catch (e) {}
+    return barByTime(param.time);
+  }
+
+  // Pan/zoom moves candles under a fixed crosshair — ignore those OHLC jumps.
+  try {
+    chart.timeScale().subscribeVisibleLogicalRangeChange(function() {
+      chartPanning = true;
+      if (panTimer) clearTimeout(panTimer);
+      panTimer = setTimeout(function() { chartPanning = false; }, 180);
+      paintPinnedOrLive();
+    });
+  } catch (e) {}
+
+  chart.subscribeCrosshairMove(function(param) {
+    if (chartPanning) {
+      paintPinnedOrLive();
+      return;
+    }
+    var bar = barFromCrosshair(param);
+    if (bar) {
+      ohlcPinnedTime = bar.time;
+      paintOhlc(bar);
+      return;
+    }
+    // Crosshair left the chart → back to live candle.
+    ohlcPinnedTime = null;
+    paintOhlc(lastBar);
+  });
   function addPaneHist(id, data, scaleId, top, bottom) {
     var s = chart.addHistogramSeries({
       priceScaleId: scaleId, priceLineVisible: false, lastValueVisible: false
@@ -633,7 +749,14 @@ class _TradingViewChartState extends State<TradingViewChart> {
       }
     });
     paneMargins(panes.length);
-    var paneH = panes.length ? (0.55 / panes.length) : 0;
+    var paneBand = paneBottomFor(panes.length);
+    var paneH = panes.length ? Math.max(0.10, (paneBand - 0.04) / panes.length) : 0;
+    var paneTop0 = 1 - paneBand + 0.02;
+    function paneTB(pi) {
+      var t = paneTop0 + pi * paneH;
+      var b = Math.max(0.02, 1 - (t + paneH));
+      return { t: t, b: b };
+    }
 
     activeIndicators.forEach(function(cfg) {
       var type = cfg.type;
@@ -666,8 +789,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addOverlayLine(id + '_lo', color2, lo, 1);
       } else if (type === 'vol') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var hist = [];
         for (var i = 0; i < ohlc.length; i++) {
           var v = ohlc[i].volume || 0;
@@ -681,13 +804,39 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneHist(id, hist, id, t, b);
       } else if (type === 'rsi') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
-        addPaneLine(id, color, lineData(rsi(c, len)), id, t, b);
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
+        var rsiSeries = addPaneLine(id, color, lineData(rsi(c, len)), id, t, b);
+        // Lock RSI pane to 0–100 so the line doesn't look oversized.
+        try {
+          rsiSeries.applyOptions({
+            autoscaleInfoProvider: function() {
+              return { priceRange: { minValue: 0, maxValue: 100 } };
+            }
+          });
+        } catch (e) {}
+        var hi = Number(cfg.levelHigh);
+        var lo = Number(cfg.levelLow);
+        if (!(hi > 0 && hi <= 100)) hi = 70;
+        if (!(lo > 0 && lo <= 100)) lo = 30;
+        if (lo >= hi) lo = Math.max(1, hi - 1);
+        // Overbought / oversold guides (from indicator settings).
+        try {
+          rsiSeries.createPriceLine({
+            price: hi, color: 'rgba(209,67,42,0.75)', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true, title: String(hi)
+          });
+          rsiSeries.createPriceLine({
+            price: lo, color: 'rgba(31,122,56,0.75)', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true, title: String(lo)
+          });
+        } catch (e) {}
       } else if (type === 'macd') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var eFast = ema(c, len), eSlow = ema(c, len2);
         var macdLine = [];
         for (var i = 0; i < c.length; i++) {
@@ -709,8 +858,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneLine(id + '_s', color2, lineData(sig), id, t, b);
       } else if (type === 'stoch') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var kArr = [];
         var kLen = Math.max(1, len);
         for (var i = 0; i < ohlc.length; i++) {
@@ -728,13 +877,13 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneLine(id + '_d', color2, lineData(dArr), id, t, b);
       } else if (type === 'atr') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         addPaneLine(id, color, lineData(atr(len)), id, t, b);
       } else if (type === 'mom') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var mom = [];
         for (var i = 0; i < c.length; i++) {
           mom.push(i >= len ? c[i] - c[i - len] : null);
@@ -742,8 +891,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneLine(id, color, lineData(mom), id, t, b);
       } else if (type === 'cci') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var tp = ohlc.map(function(x){ return (x.high + x.low + x.close) / 3; });
         var mid = sma(tp, len);
         var cci = [];
@@ -757,8 +906,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneLine(id, color, lineData(cci), id, t, b);
       } else if (type === 'willr') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var wr = [];
         for (var i = 0; i < ohlc.length; i++) {
           if (i < len - 1) { wr.push(null); continue; }
@@ -772,8 +921,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
         addPaneLine(id, color, lineData(wr), id, t, b);
       } else if (type === 'ao') {
         var pi = panes.indexOf(id);
-        var t = 0.45 + pi * paneH;
-        var b = Math.max(0.02, 1 - (t + paneH - 0.02));
+        var pb = paneTB(pi);
+        var t = pb.t, b = pb.b;
         var mid = ohlc.map(function(x){ return (x.high + x.low) / 2; });
         var sFast = sma(mid, len), sSlow = sma(mid, len2);
         var hist = [];
@@ -814,11 +963,15 @@ class _TradingViewChartState extends State<TradingViewChart> {
     if (!ohlc.length) {
       series.setData([]);
       lastBar = null;
+      ohlcPinnedTime = null;
       clearIndicators();
+      paintOhlc(null);
       return;
     }
     series.setData(ohlc.map(toSeriesBar));
     lastBar = ohlc[ohlc.length - 1];
+    ohlcPinnedTime = null; // new data / symbol / TF → live candle
+    paintOhlc(lastBar);
     // Symbol/TF change: always re-fit — previous pair's manual zoom
     // left autoScale off so AUDCAD (<1) looked "far" on the Y axis.
     resetPriceScale();
@@ -873,6 +1026,8 @@ class _TradingViewChartState extends State<TradingViewChart> {
       series.update(toSeriesBar(lastBar));
     }
     ensureLines(bid, ask > 0 ? ask : bid);
+    // Live candle only if not inspecting a pinned historical bar.
+    paintPinnedOrLive();
     // Rare indicator refresh — frequent rebuild was resetting price zoom.
     var now = Date.now();
     if (activeIndicators.length && (!window.__indAt || now - window.__indAt > 2000)) {

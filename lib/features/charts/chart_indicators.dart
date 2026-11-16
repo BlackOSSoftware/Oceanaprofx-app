@@ -61,7 +61,7 @@ class ChartIndicator {
     ChartIndicator(
       type: 'rsi',
       label: 'Relative Strength Index',
-      subtitle: 'Length',
+      subtitle: 'Length · Levels 70 / 30',
     ),
     ChartIndicator(
       type: 'macd',
@@ -128,6 +128,8 @@ class ChartIndicatorConfig {
     this.length2 = 26,
     this.length3 = 9,
     this.mult = 2.0,
+    this.levelHigh = 70,
+    this.levelLow = 30,
     this.color = '#F5A623',
     this.color2 = '#2196F3',
     this.color3 = '#FF9800',
@@ -139,6 +141,10 @@ class ChartIndicatorConfig {
   int length2;
   int length3;
   double mult;
+
+  /// RSI overbought / oversold guides (editable in settings).
+  int levelHigh;
+  int levelLow;
   String color;
   String color2;
   String color3;
@@ -149,7 +155,7 @@ class ChartIndicatorConfig {
       'sma' => 'SMA $length',
       'ema' => 'EMA $length',
       'bb' => 'BB $length ($mult)',
-      'rsi' => 'RSI $length',
+      'rsi' => 'RSI $length ($levelHigh/$levelLow)',
       'macd' => 'MACD $length · $length2 · $length3',
       'stoch' => 'Stoch $length · $length3',
       'atr' => 'ATR $length',
@@ -169,6 +175,8 @@ class ChartIndicatorConfig {
         'length2': length2,
         'length3': length3,
         'mult': mult,
+        'levelHigh': levelHigh,
+        'levelLow': levelLow,
         'color': color,
         'color2': color2,
         'color3': color3,
@@ -181,6 +189,8 @@ class ChartIndicatorConfig {
         length2: length2,
         length3: length3,
         mult: mult,
+        levelHigh: levelHigh,
+        levelLow: levelLow,
         color: color,
         color2: color2,
         color3: color3,
@@ -218,6 +228,8 @@ class ChartIndicatorConfig {
           instanceId: id,
           type: 'rsi',
           length: 14,
+          levelHigh: 70,
+          levelLow: 30,
           color: '#7B1FA2',
         ),
       'macd' => ChartIndicatorConfig(

@@ -1157,12 +1157,21 @@ class TradingService extends ChangeNotifier {
 
   /// Last email used for portal login (prefill only — no password).
   Future<({String email, String password})?> savedEmailLogin() async {
+    final remembered = await rememberedLoginEmail();
+    if (remembered != null && remembered.isNotEmpty) {
+      return (email: remembered, password: '');
+    }
     if (savedPortalLogins.isNotEmpty) {
       final top = savedPortalLogins.first;
       if (top.email.isNotEmpty) {
         return (email: top.email, password: '');
       }
     }
+    return null;
+  }
+
+  /// Email saved via Login "Remember me" (prefs only).
+  Future<String?> rememberedLoginEmail() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_emailCredsKey);
     if (raw == null || raw.isEmpty) return null;
@@ -1170,11 +1179,15 @@ class TradingService extends ChangeNotifier {
       final j = jsonDecode(raw);
       if (j is! Map) return null;
       final email = '${j['email'] ?? ''}'.trim().toLowerCase();
-      if (email.isEmpty) return null;
-      return (email: email, password: '');
+      return email.isEmpty ? null : email;
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> clearRememberedLoginEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_emailCredsKey);
   }
 
   /// Save / update a portal email on this device (Switch Account list).
@@ -1298,7 +1311,11 @@ class TradingService extends ChangeNotifier {
   }
 
   /// Email + portal password → user JWT, then open primary trading account.
-  Future<void> loginWithEmail(String email, String password) async {
+  Future<void> loginWithEmail(
+    String email,
+    String password, {
+    bool rememberMe = true,
+  }) async {
     final nextEmail = email.trim().toLowerCase();
     final data = await _request(
       'POST',
@@ -1342,7 +1359,11 @@ class TradingService extends ChangeNotifier {
     userProfile = null;
     myKyc = null;
     await _persistUserPortal();
-    await rememberEmailLogin(email, password);
+    if (rememberMe) {
+      await rememberEmailLogin(email, password);
+    } else {
+      await clearRememberedLoginEmail();
+    }
     startPresenceTracking();
     await refreshLinkedAccounts();
     await activatePrimaryAccount();
@@ -2081,7 +2102,8 @@ class TradingService extends ChangeNotifier {
   Future<void> sendPresenceOffline() =>
       _presencePost('/v1/user/presence/offline');
 
-  /// Silent presence call — never forces logout on failure.
+  /// Presence is best-effort — except App Lock (401 + APP_LOCKED),
+  /// which must force logout to the Login screen.
   Future<void> _presencePost(String path) async {
     final portalToken = userPortal?.accessToken ?? '';
     final tradeToken = session?.token ?? '';
@@ -2097,8 +2119,23 @@ class TradingService extends ChangeNotifier {
       req.headers.set('Authorization', 'Bearer $token');
       req.write('{}');
       final resp = await req.close();
-      // Drain body; ignore non-2xx (stale token etc.).
-      await resp.drain<void>();
+      final text = await resp.transform(utf8.decoder).join();
+      if (resp.statusCode == 401) {
+        var locked = false;
+        try {
+          final decoded = jsonDecode(text);
+          if (decoded is Map) {
+            final code = decoded['code']?.toString();
+            final msg = decoded['message']?.toString().toLowerCase() ?? '';
+            locked = code == 'APP_LOCKED' ||
+                msg.contains('check your internet connection');
+          }
+        } catch (_) {}
+        if (locked) {
+          await logout();
+          return;
+        }
+      }
     } catch (_) {
       // Presence is best-effort for admin UI.
     } finally {
@@ -2465,6 +2502,25 @@ class TradingService extends ChangeNotifier {
         if (decoded is Map<String, dynamic>) data = decoded;
       } catch (_) {}
       if (resp.statusCode >= 400) {
+        final msg = data['message'] as String?;
+        final detail = data['error'] as String?;
+        final code = data['code'] as String?;
+        final isAppLocked = code == 'APP_LOCKED' ||
+            (msg != null &&
+                msg.toLowerCase().contains('check your internet connection'));
+
+        // Admin App Lock — drop session immediately, land on Login.
+        if (isAppLocked &&
+            !path.contains('/auth/login') &&
+            !path.contains('/account-auth/login')) {
+          await logout();
+          throw ApiException(
+            msg?.isNotEmpty == true
+                ? msg!
+                : 'Please check your internet connection',
+          );
+        }
+
         // Access token expire/invalid: ek baar refresh token se
         // chup chaap naya session lo aur request dobara bhejo.
         // Refresh bhi fail → full logout → Login screen.
@@ -2499,8 +2555,6 @@ class TradingService extends ChangeNotifier {
             throw ApiException('Session expired. Please login again');
           }
         }
-        final msg = data['message'] as String?;
-        final detail = data['error'] as String?;
         // Prefer specific backend error when generic "Internal server error".
         final shown = (msg == null ||
                 msg.isEmpty ||
