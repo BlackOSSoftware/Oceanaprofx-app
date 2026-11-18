@@ -18,7 +18,7 @@ import '../charts/chart_models.dart';
 import '../charts/trading_view_chart.dart';
 import '../quotes/symbol_flags.dart';
 
-/// Pending order screen — matches Tenax/SS layout (brand `#1414C7`).
+/// Pending order screen — matches Tenax/SS layout (brand `#0042FC`).
 /// Pass [existing] to edit an open pending (modifyPending) — never place a new one.
 class OceanaPendingOrderPage extends StatefulWidget {
   const OceanaPendingOrderPage({

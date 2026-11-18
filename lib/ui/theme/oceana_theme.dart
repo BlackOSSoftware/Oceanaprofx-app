@@ -31,21 +31,20 @@ abstract final class OceanaTheme {
   static ThemeData _build(Brightness brightness) {
     final dark = brightness == Brightness.dark;
 
-    // Local tokens so light/dark ThemeData don't fight OcColors mutation order.
-    final primary =
-        dark ? const Color(0xFF8B9BFF) : OcColors.brand;
-    final bg = dark ? const Color(0xFF0E0E10) : const Color(0xFFF5F5F7);
-    final surface = dark ? const Color(0xFF1A1A1E) : const Color(0xFFFFFFFF);
-    final border = dark ? const Color(0xFF33333C) : const Color(0xFFE6E6EA);
+    // Local tokens — portal light/dark design system (`#0042FC`).
+    final primary = OcColors.brand;
+    final bg = dark ? const Color(0xFF0E0E10) : const Color(0xFFF4F4F7);
+    final surface = dark ? const Color(0xFF19191F) : const Color(0xFFFFFFFF);
+    final border = dark ? const Color(0xFF30303A) : const Color(0xFFE4E4E9);
     final borderStrong =
-        dark ? const Color(0xFF484852) : const Color(0xFFD0D0D6);
-    final text = dark ? const Color(0xFFF4F4F7) : const Color(0xFF111111);
+        dark ? const Color(0xFF373744) : const Color(0xFFDADAE3);
+    final text = dark ? const Color(0xFFF7F7FA) : const Color(0xFF111116);
     final textSecondary =
-        dark ? const Color(0xFFB4B4BE) : const Color(0xFF6B6B76);
+        dark ? const Color(0xFFA6A6B2) : const Color(0xFF686875);
     final placeholder =
-        dark ? const Color(0xFF7A7A85) : const Color(0xFFB0B0B8);
+        dark ? const Color(0xFF777783) : const Color(0xFF9696A2);
     final primaryMuted =
-        dark ? const Color(0xFF3A4568) : const Color(0xFFD0D0F5);
+        dark ? const Color(0xFF16246E) : const Color(0xFFDBE7FF);
 
     final base = ThemeData(
       useMaterial3: true,
@@ -166,7 +165,7 @@ abstract final class OceanaTheme {
         }),
         trackColor: WidgetStateProperty.resolveWith((s) {
           if (s.contains(WidgetState.selected)) return primary;
-          return dark ? const Color(0xFF484852) : const Color(0xFFCFCFD4);
+          return dark ? const Color(0xFF373744) : const Color(0xFFDADAE3);
         }),
       ),
       listTileTheme: ListTileThemeData(

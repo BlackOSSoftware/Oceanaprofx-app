@@ -42,7 +42,7 @@ class _OceanaChangeLeveragePageState extends State<OceanaChangeLeveragePage> {
   Future<void> _pick() async {
     final picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: const Color(0xFFF4F4F7),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),

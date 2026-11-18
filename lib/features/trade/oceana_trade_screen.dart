@@ -14,7 +14,7 @@ import '../quotes/symbol_flags.dart';
 import 'oceana_close_modify_page.dart';
 import 'oceana_pending_order_page.dart';
 
-/// Trade tab — Market / Pending / History matching Tenax SS (`#1414C7`).
+/// Trade tab — Market / Pending / History matching Tenax SS (`#0042FC`).
 class OceanaTradeScreen extends StatefulWidget {
   const OceanaTradeScreen({super.key, this.active = true});
 
@@ -907,7 +907,11 @@ class _DotsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = OcColors.primaryMuted;
+    // Soft "……" leaders between Balance / Equity labels and values.
+    final paint = Paint()
+      ..color = OcColors.isDark
+          ? OcColors.textMuted.withValues(alpha: 0.55)
+          : const Color(0xFFC5C5CE);
     const gap = 7.0;
     const r = 1.0;
     final y = size.height - r - 1;
@@ -2069,9 +2073,55 @@ class _CloseAllSheet extends StatefulWidget {
 
 class _CloseAllSheetState extends State<_CloseAllSheet> {
   _CloseAllFilter _filter = _CloseAllFilter.all;
+  late final Set<String> _seedIds;
+  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _seedIds = {
+      for (final p in widget.positions) p.positionId,
+    };
+    tradingService.addListener(_onLive);
+  }
+
+  @override
+  void dispose() {
+    tradingService.removeListener(_onLive);
+    super.dispose();
+  }
+
+  void _onLive() {
+    if (!mounted) return;
+    final now = DateTime.now();
+    // Keep PnL ticking without rebuilding every quote micro-update.
+    if (now.difference(_last).inMilliseconds < 150) return;
+    _last = now;
+    setState(() {});
+  }
+
+  /// Live positions for this sheet (seed ids), with current floating PnL.
+  List<LivePosition> get _livePositions {
+    final out = <LivePosition>[];
+    for (final id in _seedIds) {
+      final live = tradingService.positions[id];
+      if (live != null) {
+        out.add(live);
+        continue;
+      }
+      // Fallback to opening snapshot if map momentarily lags.
+      for (final p in widget.positions) {
+        if (p.positionId == id) {
+          out.add(p);
+          break;
+        }
+      }
+    }
+    return out;
+  }
 
   List<LivePosition> _for(_CloseAllFilter f) {
-    final list = widget.positions;
+    final list = _livePositions;
     return switch (f) {
       _CloseAllFilter.all => list,
       _CloseAllFilter.profitable =>

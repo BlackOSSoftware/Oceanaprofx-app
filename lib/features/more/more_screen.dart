@@ -19,7 +19,7 @@ import 'oceana_transaction_history_page.dart';
 import 'oceana_verify_account_page.dart';
 import 'oceana_verify_progress.dart';
 
-/// More / Settings — Tenax SS layout, Oceana brand `#1414C7`.
+/// More / Settings — Tenax SS layout, Oceana brand `#0042FC`.
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key, this.active = true});
 
@@ -266,13 +266,11 @@ class _MoreScreenState extends State<MoreScreen> {
                   _MenuTile(
                     icon: OcIcons.arrowLeftRight,
                     title: 'Copy Trading',
-                    comingSoon: true,
                     onTap: () {},
                   ),
                   _MenuTile(
                     icon: OcIcons.users,
                     title: 'PAMM',
-                    comingSoon: true,
                     onTap: () {},
                     showDivider: false,
                   ),

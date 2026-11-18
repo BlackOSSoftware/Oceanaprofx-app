@@ -131,7 +131,7 @@ class PublicBroker {
     required this.displayName,
     this.legalName = '',
     this.logoUrl = '',
-    this.primaryColor = '#0066FF',
+    this.primaryColor = '#0042FC',
     this.portalHosts = const [],
   });
 
@@ -157,7 +157,7 @@ class PublicBroker {
     displayName: '${j['displayName'] ?? j['code'] ?? ''}',
     legalName: '${j['legalName'] ?? ''}',
     logoUrl: '${j['logoUrl'] ?? ''}',
-    primaryColor: '${j['primaryColor'] ?? '#0066FF'}',
+    primaryColor: '${j['primaryColor'] ?? '#0042FC'}',
     portalHosts: [
       for (final h in (j['portalHosts'] as List? ?? const [])) '$h',
     ],

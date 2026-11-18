@@ -190,7 +190,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
         hintText: hint,
         hintStyle: TextStyle(color: OcColors.placeholder, fontSize: 14),
         filled: true,
-        fillColor: const Color(0xFFF5F5F7),
+        fillColor: const Color(0xFFF4F4F7),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         suffixIcon: IconButton(

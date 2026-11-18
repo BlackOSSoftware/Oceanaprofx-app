@@ -14,7 +14,7 @@ import 'oceana_change_password_dialog.dart';
 import 'oceana_choose_account_page.dart';
 import 'oceana_internal_transfer_page.dart';
 
-/// Dashboard — Tenax SS cards / sheets, Oceana brand `#1414C7`.
+/// Dashboard — Tenax SS cards / sheets, Oceana brand `#0042FC`.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, this.active = true});
 

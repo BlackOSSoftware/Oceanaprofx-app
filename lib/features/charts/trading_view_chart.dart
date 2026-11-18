@@ -312,6 +312,15 @@ class _TradingViewChartState extends State<TradingViewChart> {
     #ohlc .k { opacity:0.55; font-weight:500; margin-right:1px; }
     #ohlc .up { color:#1F7A38; }
     #ohlc .dn { color:#D1432A; }
+    /* Tiny countdown chip — sits on price line, left of axis labels. */
+    #tmCandle {
+      position:absolute; z-index:6; pointer-events:none; display:none;
+      margin:0; padding:0 3px; height:13px; line-height:13px;
+      border-radius:2px; box-sizing:border-box; width:auto !important;
+      font:700 9px/13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      color:#fff; background:#2962FF; white-space:nowrap; letter-spacing:0;
+    }
+    #tmCandle.urgent { background:#D1432A; color:#fff; }
     #err {
       display:none; position:absolute; inset:0; align-items:center; justify-content:center;
       color:$textColor; font:14px/1.4 -apple-system,BlinkMacSystemFont,sans-serif; padding:24px; text-align:center;
@@ -321,6 +330,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
 <body>
   <div id="c"></div>
   <div id="ohlc"></div>
+  <div id="tmCandle">--:--</div>
   <div id="err"></div>
   <script>
 (function() {
@@ -331,8 +341,11 @@ class _TradingViewChartState extends State<TradingViewChart> {
   var lastBar = null;
   var bidLine = null;
   var askLine = null;
+  var lastBidPx = 0;
+  var lastAskPx = 0;
   var activeIndicators = [];
   var indSeries = {};
+  var elTm = document.getElementById('tmCandle');
 
   var chart = LightweightCharts.createChart(document.getElementById('c'), {
     autoSize: true,
@@ -424,12 +437,12 @@ class _TradingViewChartState extends State<TradingViewChart> {
   var series;
   if (kind === 'line') {
     series = chart.addLineSeries({
-      color: '#1414C7', lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+      color: '#0042FC', lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
       priceFormat: priceFormatFor(digits)
     });
   } else if (kind === 'area') {
     series = chart.addAreaSeries({
-      lineColor: '#1414C7', topColor: 'rgba(20,20,199,0.28)', bottomColor: 'rgba(20,20,199,0.02)',
+      lineColor: '#0042FC', topColor: 'rgba(0,66,252,0.28)', bottomColor: 'rgba(0,66,252,0.02)',
       lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
       priceFormat: priceFormatFor(digits)
     });
@@ -942,18 +955,79 @@ class _TradingViewChartState extends State<TradingViewChart> {
     });
   }
 
+  function candleLeftSec() {
+    var now = Math.floor(Date.now() / 1000);
+    var rem = tfSec - (now % tfSec);
+    return rem <= 0 ? tfSec : rem;
+  }
+
+  function formatCandleLeft(sec) {
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    function two(n) { return (n < 10 ? '0' : '') + n; }
+    if (h > 0) return two(h) + ':' + two(m) + ':' + two(s);
+    return two(m) + ':' + two(s);
+  }
+
+  function priceY(price) {
+    if (!(price > 0)) return null;
+    try {
+      var y = series.priceToCoordinate(price);
+      return (y == null || !isFinite(y)) ? null : y;
+    } catch (e) { return null; }
+  }
+
+  function paintTimers() {
+    if (!elTm) return;
+    var yAsk = priceY(lastAskPx);
+    var yBid = priceY(lastBidPx);
+    var y = null;
+    if (yAsk != null && yBid != null) y = Math.max(yAsk, yBid);
+    else y = yAsk != null ? yAsk : yBid;
+    if (y == null) {
+      elTm.style.display = 'none';
+      return;
+    }
+    var left = candleLeftSec();
+    var urgent = left <= 10;
+    var axisW = 78;
+    try {
+      var w = chart.priceScale('right').width();
+      if (w > 0 && isFinite(w)) axisW = w;
+    } catch (e) {}
+    // On the price line: slightly below the line, left of axis price labels.
+    elTm.style.display = 'block';
+    elTm.style.left = 'auto';
+    elTm.style.right = (axisW + 6) + 'px';
+    elTm.style.width = 'auto';
+    elTm.style.top = (y + 2) + 'px';
+    elTm.style.bottom = 'auto';
+    elTm.textContent = formatCandleLeft(left);
+    if (urgent) elTm.classList.add('urgent');
+    else elTm.classList.remove('urgent');
+  }
+
   function ensureLines(bid, ask) {
     if (bidLine) series.removePriceLine(bidLine);
     if (askLine) series.removePriceLine(askLine);
+    lastBidPx = bid;
+    lastAskPx = ask > 0 ? ask : bid;
     bidLine = series.createPriceLine({
       price: bid, color: '#D1432A', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true, title: ''
     });
     askLine = series.createPriceLine({
-      price: ask, color: '#1F7A38', lineWidth: 1,
+      price: lastAskPx, color: '#1F7A38', lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: true, title: ''
     });
+    paintTimers();
   }
+
+  setInterval(paintTimers, 1000);
+  try {
+    chart.timeScale().subscribeVisibleLogicalRangeChange(function() { paintTimers(); });
+  } catch (e) {}
 
   window.__setBars = function(bars, dig) {
     document.getElementById('err').style.display = 'none';
@@ -966,6 +1040,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
       ohlcPinnedTime = null;
       clearIndicators();
       paintOhlc(null);
+      paintTimers();
       return;
     }
     series.setData(ohlc.map(toSeriesBar));
@@ -978,6 +1053,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
     chart.timeScale().fitContent();
     applyIndicators();
     resetPriceScale();
+    paintTimers();
   };
 
   window.__setIndicators = function(list) {
@@ -1038,6 +1114,7 @@ class _TradingViewChartState extends State<TradingViewChart> {
 
   window.addEventListener('resize', function() {
     chart.applyOptions({ width: window.innerWidth, height: window.innerHeight });
+    paintTimers();
   });
 })();
   </script>

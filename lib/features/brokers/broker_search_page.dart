@@ -176,7 +176,7 @@ class _BrokerSearchPageState extends State<BrokerSearchPage> {
                                   leading: ClipRRect(
                                     borderRadius: BorderRadius.circular(10),
                                     child: ColoredBox(
-                                      color: const Color(0xFFF5F5F7),
+                                      color: const Color(0xFFF4F4F7),
                                       child: Image.asset(
                                         'assets/brand/oceana_mark_v3.png',
                                         width: 40,

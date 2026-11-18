@@ -41,12 +41,12 @@ class OcBrandMark extends StatelessWidget {
           alignment: Alignment.center,
           filterQuality: FilterQuality.high,
           errorBuilder: (context, error, stackTrace) => ColoredBox(
-            color: const Color(0xFFF5F5F7),
+            color: const Color(0xFFF4F4F7),
             child: Center(
               child: Text(
                 'O',
                 style: TextStyle(
-                  color: const Color(0xFF1414C7),
+                  color: const Color(0xFF0042FC),
                   fontSize: height * 0.42,
                   fontWeight: FontWeight.w800,
                 ),

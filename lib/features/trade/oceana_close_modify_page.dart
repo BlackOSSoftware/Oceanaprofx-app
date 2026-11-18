@@ -20,7 +20,7 @@ import '../quotes/symbol_flags.dart';
 
 enum OceanaPositionPageMode { close, modify }
 
-/// Close or Modify Position — Tenax SS layout, Oceana brand `#1414C7`.
+/// Close or Modify Position — Tenax SS layout, Oceana brand `#0042FC`.
 class OceanaCloseModifyPage extends StatefulWidget {
   const OceanaCloseModifyPage({
     super.key,

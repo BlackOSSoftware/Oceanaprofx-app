@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/format.dart';
 import '../../core/shell_controller.dart';
@@ -57,6 +58,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
   static const _minLot = 0.01;
   static const _maxLot = 100.0;
   static const _lotStep = 0.01;
+  static const _prefsTfKey = 'chart_last_timeframe';
 
   /// Quick lot deltas under quantity (minus → plus).
   static const _lotQuickDeltas = <double>[
@@ -78,6 +80,25 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     // Detach any stale tear-off left by hot reload (old _onLive).
     tradingService.removeListener(_onLive);
     tradingService.subscribe(widget.symbol);
+    unawaited(_restoreLastTimeframe());
+  }
+
+  Future<void> _restoreLastTimeframe() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final code = (prefs.getString(_prefsTfKey) ?? '').trim();
+      if (code.isEmpty || !mounted) return;
+      final tf = ChartTimeframes.of(code);
+      if (tf.code == _tf.code) return;
+      setState(() => _tf = tf);
+    } catch (_) {}
+  }
+
+  Future<void> _persistLastTimeframe(String code) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsTfKey, code);
+    } catch (_) {}
   }
 
   /// Kept as a no-op so hot-reload tear-offs of the old method don't crash.
@@ -199,6 +220,7 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
     );
     if (picked == null || !mounted) return;
     setState(() => _tf = ChartTimeframes.of(picked));
+    unawaited(_persistLastTimeframe(picked));
   }
 
   Future<void> _pickChartStyle() async {
@@ -251,33 +273,44 @@ class _OceanaChartsScreenState extends State<OceanaChartsScreen> {
       return;
     }
 
-    setState(() => _busy = true);
+    // Sync flag before setState so rapid double-taps can't slip two orders.
+    _busy = true;
+    setState(() {});
     HapticFeedback.lightImpact();
+    final lot = _volume;
     try {
       await tradingService.placeMarketOrder(
         symbol: widget.symbol,
         side: side,
-        volume: _volume,
+        volume: lot,
       );
       unawaited(TradeSound.ok());
       if (!mounted) return;
-      await showOcTradeResult(
+      // Re-enable Buy/Sell immediately — do not wait for the toast (~1.6s)
+      // so multi market orders can be placed back-to-back.
+      _busy = false;
+      setState(() {});
+      unawaited(showOcTradeResult(
         context,
         title: 'Order executed',
-        message:
-            '$side ${widget.symbol} ${_volume.toStringAsFixed(2)} lot',
-      );
+        message: '$side ${widget.symbol} ${lot.toStringAsFixed(2)} lot',
+      ));
     } catch (e) {
       unawaited(TradeSound.error());
       if (!mounted) return;
-      await showOcTradeResult(
+      _busy = false;
+      setState(() {});
+      unawaited(showOcTradeResult(
         context,
         title: 'Order failed',
         message: '$e'.replaceFirst('Exception: ', ''),
         success: false,
-      );
+      ));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && _busy) {
+        _busy = false;
+        setState(() {});
+      }
     }
   }
 

@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 /// App palette. The values below are the light (white) theme by default;
 /// [applyDark] swaps them for the dark (black) theme.
 abstract final class MtColors {
-  static const accent = Color(0xFF0066FF);
-  static const bid = Color(0xFF0066FF);
-  static const ask = Color(0xFFC81E1E);
+  static const accent = Color(0xFF0042FC);
+  static const bid = Color(0xFFD1432A);
+  static const ask = Color(0xFF1F7A38);
   static const priceUp = bid;
   static const priceDown = ask;
   static const demo = Color(0xFF43A047);
